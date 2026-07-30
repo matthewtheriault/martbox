@@ -1,0 +1,16 @@
+node_modules/
+out/
+dist/
+dist-electron/
+release/
+build/*
+!build/.gitkeep
+*.log
+npm-debug.log*
+.DS_Store
+.env
+.env.local
+*.pem
+.vite/
+.electron-vite/
+*.tsbuildinfo
