@@ -1,6 +1,5 @@
 appId: com.matthewtheriault.martbox
 productName: MartBox
-publish: never
 directories:
   buildResources: build
   output: release

@@ -10,9 +10,9 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "build:win": "electron-vite build && electron-builder --win",
-    "build:linux": "electron-vite build && electron-builder --linux",
-    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:win": "electron-vite build && electron-builder --win --publish never",
+    "build:linux": "electron-vite build && electron-builder --linux --publish never",
+    "build:mac": "electron-vite build && electron-builder --mac --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
