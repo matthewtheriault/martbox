@@ -4,7 +4,7 @@ dist/
 dist-electron/
 release/
 build/*
-!build/.gitkeep
+!build/icon.png
 *.log
 npm-debug.log*
 .DS_Store

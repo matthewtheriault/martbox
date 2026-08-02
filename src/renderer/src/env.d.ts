@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
-import type { OvrlookApi } from '../../preload/index'
+import type { MartBoxApi } from '../../preload/index'
 
 declare global {
   interface Window {
-    api: OvrlookApi
+    api: MartBoxApi
   }
 }

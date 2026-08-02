@@ -1,5 +1,5 @@
-appId: com.matthewtheriault.ovrlook
-productName: Ovrlook
+appId: com.matthewtheriault.martbox
+productName: MartBox
 directories:
   buildResources: build
   output: release

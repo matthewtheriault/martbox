@@ -1,7 +1,7 @@
 {
-  "name": "ovrlook",
+  "name": "martbox",
   "version": "0.1.0",
-  "description": "Ovrlook - a self-hosted media server & native desktop app for Movies and TV Shows",
+  "description": "MartBox - a self-hosted media server & native desktop app for Movies and TV Shows",
   "main": "./out/main/index.js",
   "author": "matthewtheriault",
   "private": true,

@@ -65,4 +65,4 @@ const api = {
 
 contextBridge.exposeInMainWorld('api', api)
 
-export type OvrlookApi = typeof api
+export type MartBoxApi = typeof api

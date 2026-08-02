@@ -4,7 +4,7 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 
 mkdirSync(app.getPath('userData'), { recursive: true })
-const dbPath = join(app.getPath('userData'), 'ovrlook.db')
+const dbPath = join(app.getPath('userData'), 'martbox.db')
 
 export const db: Database.Database = new Database(dbPath)
 db.pragma('journal_mode = WAL')

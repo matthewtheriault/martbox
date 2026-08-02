@@ -1,4 +1,8 @@
-# Ovrlook
+# MartBox
+
+<p align="center">
+  <img src="build/icon.png" alt="MartBox logo" width="160" height="160" />
+</p>
 
 A self-hosted, native desktop media server for your personal Movies and TV Shows library. Built with Electron + React. Scans your local library, fetches posters/metadata from TMDb, and gives you a Netflix/Plex-style browsing experience with watch history and Continue Watching — no subscription, no cloud.
 
@@ -28,7 +32,7 @@ Metadata lookups require a free TMDb API key:
 
 1. Create an account at https://www.themoviedb.org/
 2. Go to **Settings → API** and request a free "Developer" API key (v3 auth)
-3. Open Ovrlook → **Settings** → paste the key under "TMDb API Key" → Save
+3. Open MartBox → **Settings** → paste the key under "TMDb API Key" → Save
 
 ### Adding your library
 

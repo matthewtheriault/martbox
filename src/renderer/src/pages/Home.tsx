@@ -47,7 +47,7 @@ export default function Home(): JSX.Element {
     <div className="page page-home">
       {!hasLibrary && (
         <div className="empty-state">
-          <h1>Welcome to Ovrlook</h1>
+          <h1>Welcome to MartBox</h1>
           <p>Add a library in Settings to start scanning your Movies and TV Shows.</p>
           <button className="btn-primary" onClick={() => navigate('/settings')}>
             Go to Settings

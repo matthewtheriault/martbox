@@ -9,7 +9,7 @@ export function PortProvider({ children }: { children: ReactNode }): JSX.Element
     window.api.media.serverPort().then(setPort)
   }, [])
 
-  if (!port) return <div className="app-loading">Starting Ovrlook…</div>
+  if (!port) return <div className="app-loading">Starting MartBox…</div>
   return <PortContext.Provider value={port}>{children}</PortContext.Provider>
 }
 

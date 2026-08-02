@@ -37,7 +37,7 @@ export default function Sidebar(): JSX.Element {
     <aside className="sidebar">
       <div className="sidebar-brand">
         <span className="sidebar-brand-mark" />
-        <span className="sidebar-brand-text">ovrlook</span>
+        <span className="sidebar-brand-text">martbox</span>
       </div>
       <nav className="sidebar-nav">
         <NavLink to="/" end className="sidebar-link">
