@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Movie, WatchProgress } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { useProfile } from '../lib/ProfileContext'
 import { imageUrl, formatRuntime } from '../lib/media'
 
 export default function MovieDetail(): JSX.Element | null {
   const { id } = useParams()
   const port = usePort()
+  const { activeProfile } = useProfile()
   const navigate = useNavigate()
   const [movie, setMovie] = useState<Movie | null>(null)
   const [progress, setProgress] = useState<WatchProgress | null>(null)
@@ -14,8 +16,8 @@ export default function MovieDetail(): JSX.Element | null {
   useEffect(() => {
     if (!id) return
     window.api.movies.get(Number(id)).then(setMovie)
-    window.api.progress.get('movie', Number(id)).then(setProgress)
-  }, [id])
+    window.api.progress.get(activeProfile.id, 'movie', Number(id)).then(setProgress)
+  }, [id, activeProfile.id])
 
   if (!movie) return null
 
@@ -52,8 +54,10 @@ export default function MovieDetail(): JSX.Element | null {
               className="btn-secondary"
               onClick={() =>
                 window.api.progress
-                  .setWatched('movie', movie.id, !progress?.watched)
-                  .then(() => window.api.progress.get('movie', movie.id).then(setProgress))
+                  .setWatched(activeProfile.id, 'movie', movie.id, !progress?.watched)
+                  .then(() =>
+                    window.api.progress.get(activeProfile.id, 'movie', movie.id).then(setProgress)
+                  )
               }
             >
               {progress?.watched ? 'Mark Unwatched' : 'Mark Watched'}

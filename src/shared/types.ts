@@ -1,4 +1,14 @@
+import type { RemoteAccessMode } from './remoteAccess'
+
 export type MediaType = 'movie' | 'episode'
+
+export interface Profile {
+  id: number
+  name: string
+  avatarId: string
+  createdAt: string
+  isAdmin: boolean
+}
 
 export interface Library {
   id: number
@@ -51,6 +61,7 @@ export interface Episode {
 }
 
 export interface WatchProgress {
+  profileId: number
   mediaType: MediaType
   mediaId: number
   positionSeconds: number
@@ -84,4 +95,47 @@ export interface ScanProgress {
 
 export interface AppSettings {
   tmdbApiKey: string | null
+  remoteAccessMode: RemoteAccessMode
+}
+
+export interface IptvChannel {
+  id: number
+  tvgId: string | null
+  name: string
+  logoUrl: string | null
+  groupTitle: string | null
+  sortOrder: number
+  nowPlayingTitle: string | null
+  nowPlayingEndsAt: string | null
+}
+
+export interface IptvSettingsInfo {
+  m3uUrl: string | null
+  epgUrl: string | null
+  lastRefreshedAt: string | null
+  lastError: string | null
+  channelCount: number
+}
+
+export interface IptvRefreshResult {
+  channelCount: number
+  programmeCount: number
+  refreshedAt: string
+  error: string | null
+}
+
+export interface ActivityItem {
+  profileId: number
+  profileName: string
+  profileAvatarId: string
+  mediaType: MediaType
+  mediaId: number
+  positionSeconds: number
+  durationSeconds: number
+  watched: boolean
+  updatedAt: string
+  title: string
+  subtitle: string | null
+  posterPath: string | null
+  backdropPath: string | null
 }

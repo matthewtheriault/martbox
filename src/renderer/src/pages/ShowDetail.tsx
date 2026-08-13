@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Episode, Show, WatchProgress } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { useProfile } from '../lib/ProfileContext'
 import { imageUrl } from '../lib/media'
 
 export default function ShowDetail(): JSX.Element | null {
   const { id } = useParams()
   const port = usePort()
+  const { activeProfile } = useProfile()
   const navigate = useNavigate()
   const [show, setShow] = useState<Show | null>(null)
   const [episodes, setEpisodes] = useState<Episode[]>([])
@@ -23,12 +25,13 @@ export default function ShowDetail(): JSX.Element | null {
       if (eps.length > 0) setSelectedSeason(eps[0].seasonNumber)
       const entries = await Promise.all(
         eps.map(
-          async (ep: Episode) => [ep.id, await window.api.progress.get('episode', ep.id)] as const
+          async (ep: Episode) =>
+            [ep.id, await window.api.progress.get(activeProfile.id, 'episode', ep.id)] as const
         )
       )
       setProgressByEpisode(Object.fromEntries(entries))
     })
-  }, [id])
+  }, [id, activeProfile.id])
 
   const seasons = useMemo(
     () => [...new Set(episodes.map((e) => e.seasonNumber))].sort((a, b) => a - b),
@@ -38,7 +41,7 @@ export default function ShowDetail(): JSX.Element | null {
   const visibleEpisodes = episodes.filter((e) => e.seasonNumber === selectedSeason)
 
   const playNext = (): void => {
-    window.api.shows.nextEpisode(Number(id)).then((ep) => {
+    window.api.shows.nextEpisode(activeProfile.id, Number(id)).then((ep) => {
       if (ep) navigate(`/play/episode/${ep.id}`)
     })
   }

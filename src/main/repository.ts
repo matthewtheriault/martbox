@@ -1,13 +1,17 @@
 import { db } from './db'
 import type {
+  ActivityItem,
   ContinueWatchingItem,
   Episode,
+  IptvChannel,
   Library,
   MediaType,
   Movie,
+  Profile,
   Show,
   WatchProgress
 } from '../shared/types'
+import type { ParsedIptvChannel, ParsedProgramme } from './iptvParser'
 
 /* ---------- row -> type mappers ---------- */
 
@@ -62,6 +66,40 @@ function rowToEpisode(r: any): Episode {
     airDate: r.air_date,
     durationSeconds: r.duration_seconds
   }
+}
+
+function rowToProfile(r: any): Profile {
+  return {
+    id: r.id,
+    name: r.name,
+    avatarId: r.avatar_id,
+    createdAt: r.created_at,
+    isAdmin: !!r.is_admin
+  }
+}
+
+/* ---------- profiles ---------- */
+
+export function listProfiles(): Profile[] {
+  return (db.prepare('SELECT * FROM profiles ORDER BY id').all() as any[]).map(rowToProfile)
+}
+
+export function createProfile(name: string, avatarId: string): Profile {
+  // Whoever creates the first profile ever (always the host, before any
+  // friend joins) is the admin — no manual toggle needed.
+  const isFirst = listProfiles().length === 0
+  const info = db
+    .prepare('INSERT INTO profiles (name, avatar_id, is_admin) VALUES (?, ?, ?)')
+    .run(name, avatarId, isFirst ? 1 : 0)
+  return rowToProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(info.lastInsertRowid))
+}
+
+export function renameProfile(id: number, name: string): void {
+  db.prepare('UPDATE profiles SET name = ? WHERE id = ?').run(name, id)
+}
+
+export function deleteProfile(id: number): void {
+  db.prepare('DELETE FROM profiles WHERE id = ?').run(id)
 }
 
 /* ---------- libraries ---------- */
@@ -169,6 +207,7 @@ export function getEpisode(id: number): Episode | null {
 /* ---------- watch progress ---------- */
 
 export function saveProgress(
+  profileId: number,
   mediaType: MediaType,
   mediaId: number,
   positionSeconds: number,
@@ -176,22 +215,27 @@ export function saveProgress(
 ): void {
   const watched = durationSeconds > 0 && positionSeconds / durationSeconds >= 0.92 ? 1 : 0
   db.prepare(
-    `INSERT INTO watch_progress (media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(media_type, media_id) DO UPDATE SET
+    `INSERT INTO watch_progress (profile_id, media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(profile_id, media_type, media_id) DO UPDATE SET
        position_seconds = excluded.position_seconds,
        duration_seconds = excluded.duration_seconds,
        watched = excluded.watched,
        updated_at = excluded.updated_at`
-  ).run(mediaType, mediaId, positionSeconds, durationSeconds, watched)
+  ).run(profileId, mediaType, mediaId, positionSeconds, durationSeconds, watched)
 }
 
-export function getProgress(mediaType: MediaType, mediaId: number): WatchProgress | null {
+export function getProgress(
+  profileId: number,
+  mediaType: MediaType,
+  mediaId: number
+): WatchProgress | null {
   const row = db
-    .prepare('SELECT * FROM watch_progress WHERE media_type = ? AND media_id = ?')
-    .get(mediaType, mediaId) as any
+    .prepare('SELECT * FROM watch_progress WHERE profile_id = ? AND media_type = ? AND media_id = ?')
+    .get(profileId, mediaType, mediaId) as any
   if (!row) return null
   return {
+    profileId: row.profile_id,
     mediaType: row.media_type,
     mediaId: row.media_id,
     positionSeconds: row.position_seconds,
@@ -201,24 +245,29 @@ export function getProgress(mediaType: MediaType, mediaId: number): WatchProgres
   }
 }
 
-export function setWatched(mediaType: MediaType, mediaId: number, watched: boolean): void {
+export function setWatched(
+  profileId: number,
+  mediaType: MediaType,
+  mediaId: number,
+  watched: boolean
+): void {
   db.prepare(
-    `INSERT INTO watch_progress (media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
-     VALUES (?, 0, 0, ?, datetime('now'))
-     ON CONFLICT(media_type, media_id) DO UPDATE SET watched = excluded.watched, updated_at = excluded.updated_at`
-  ).run(mediaType, mediaId, watched ? 1 : 0)
+    `INSERT INTO watch_progress (profile_id, media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
+     VALUES (?, ?, 0, 0, ?, datetime('now'))
+     ON CONFLICT(profile_id, media_type, media_id) DO UPDATE SET watched = excluded.watched, updated_at = excluded.updated_at`
+  ).run(profileId, mediaType, mediaId, watched ? 1 : 0)
 }
 
-export function getContinueWatching(limit = 20): ContinueWatchingItem[] {
+export function getContinueWatching(profileId: number, limit = 20): ContinueWatchingItem[] {
   const rows = db
     .prepare(
       `SELECT wp.media_type, wp.media_id, wp.position_seconds, wp.duration_seconds, wp.updated_at
        FROM watch_progress wp
-       WHERE wp.watched = 0 AND wp.position_seconds > 0
+       WHERE wp.profile_id = ? AND wp.watched = 0 AND wp.position_seconds > 0
        ORDER BY wp.updated_at DESC
        LIMIT ?`
     )
-    .all(limit) as any[]
+    .all(profileId, limit) as any[]
 
   const items: ContinueWatchingItem[] = []
   for (const row of rows) {
@@ -262,11 +311,135 @@ export function getContinueWatching(limit = 20): ContinueWatchingItem[] {
   return items
 }
 
-export function getNextEpisodeToWatch(showId: number): Episode | null {
+export function getNextEpisodeToWatch(profileId: number, showId: number): Episode | null {
   const episodes = listEpisodes(showId)
   for (const ep of episodes) {
-    const progress = getProgress('episode', ep.id)
+    const progress = getProgress(profileId, 'episode', ep.id)
     if (!progress || !progress.watched) return ep
   }
   return null
+}
+
+// Admin-only view: every profile's watch activity (in-progress and
+// completed), most recent first. Same shape as getContinueWatching but
+// without the profile_id filter or the watched=0 exclusion.
+export function getAllActivity(limit = 100): ActivityItem[] {
+  const rows = db
+    .prepare(
+      `SELECT wp.profile_id, p.name as profile_name, p.avatar_id as profile_avatar_id,
+              wp.media_type, wp.media_id, wp.position_seconds, wp.duration_seconds,
+              wp.watched, wp.updated_at
+       FROM watch_progress wp
+       JOIN profiles p ON p.id = wp.profile_id
+       ORDER BY wp.updated_at DESC
+       LIMIT ?`
+    )
+    .all(limit) as any[]
+
+  const items: ActivityItem[] = []
+  for (const row of rows) {
+    const base = {
+      profileId: row.profile_id,
+      profileName: row.profile_name,
+      profileAvatarId: row.profile_avatar_id,
+      positionSeconds: row.position_seconds,
+      durationSeconds: row.duration_seconds,
+      watched: !!row.watched,
+      updatedAt: row.updated_at
+    }
+    if (row.media_type === 'movie') {
+      const movie = getMovie(row.media_id)
+      if (!movie) continue
+      items.push({
+        ...base,
+        mediaType: 'movie',
+        mediaId: movie.id,
+        title: movie.title,
+        subtitle: movie.year ? String(movie.year) : null,
+        posterPath: movie.posterPath,
+        backdropPath: movie.backdropPath
+      })
+    } else {
+      const episode = getEpisode(row.media_id)
+      if (!episode) continue
+      const show = getShow(episode.showId)
+      items.push({
+        ...base,
+        mediaType: 'episode',
+        mediaId: episode.id,
+        title: show?.title ?? episode.title,
+        subtitle: `S${episode.seasonNumber}:E${episode.episodeNumber} ${episode.title}`,
+        posterPath: show?.posterPath ?? null,
+        backdropPath: show?.backdropPath ?? null
+      })
+    }
+  }
+  return items
+}
+
+/* ---------- live tv (iptv) ---------- */
+
+function rowToIptvChannel(r: any): Omit<IptvChannel, 'nowPlayingTitle' | 'nowPlayingEndsAt'> {
+  return {
+    id: r.id,
+    tvgId: r.tvg_id,
+    name: r.name,
+    logoUrl: r.logo_url,
+    groupTitle: r.group_title,
+    sortOrder: r.sort_order
+  }
+}
+
+export function replaceIptvData(channels: ParsedIptvChannel[], programmes: ParsedProgramme[]): void {
+  const tx = db.transaction(() => {
+    db.exec('DELETE FROM iptv_programmes')
+    db.exec('DELETE FROM iptv_channels')
+
+    const insertChannel = db.prepare(
+      `INSERT INTO iptv_channels (tvg_id, name, logo_url, group_title, stream_url, sort_order)
+       VALUES (@tvgId, @name, @logoUrl, @groupTitle, @streamUrl, @sortOrder)`
+    )
+    channels.forEach((c, i) => insertChannel.run({ ...c, sortOrder: i }))
+
+    const insertProgramme = db.prepare(
+      `INSERT INTO iptv_programmes (channel_tvg_id, title, description, start_at, stop_at)
+       VALUES (@channelTvgId, @title, @description, @startAt, @stopAt)`
+    )
+    for (const p of programmes) insertProgramme.run(p)
+  })
+  tx()
+}
+
+// Public shape — deliberately omits stream_url, which can embed an IPTV
+// account's username/password as query params. Never expose it over IPC or
+// the /api/* HTTP surface; only getIptvChannelStreamUrl (below) may touch it.
+export function listIptvChannels(): IptvChannel[] {
+  const channels = (db.prepare('SELECT * FROM iptv_channels ORDER BY sort_order').all() as any[]).map(
+    rowToIptvChannel
+  )
+  const nowIso = new Date().toISOString()
+  const airing = db
+    .prepare(
+      'SELECT channel_tvg_id, title, stop_at FROM iptv_programmes WHERE start_at <= ? AND stop_at > ?'
+    )
+    .all(nowIso, nowIso) as any[]
+  const byChannel = new Map(airing.map((r) => [r.channel_tvg_id, r]))
+
+  return channels.map((c) => {
+    const nowPlaying = c.tvgId ? byChannel.get(c.tvgId) : undefined
+    return {
+      ...c,
+      nowPlayingTitle: nowPlaying?.title ?? null,
+      nowPlayingEndsAt: nowPlaying?.stop_at ?? null
+    }
+  })
+}
+
+// Internal only — called exclusively from mediaServer.ts's /live proxy route
+// in-process. Never serialize this value over IPC or /api/*.
+export function getIptvChannelStreamUrl(id: number): string | null {
+  const row = db.prepare('SELECT stream_url FROM iptv_channels WHERE id = ?').get(id) as
+    | { stream_url: string }
+    | undefined
+  return row?.stream_url ?? null
 }

@@ -14,3 +14,4 @@ npm-debug.log*
 .vite/
 .electron-vite/
 *.tsbuildinfo
+resources/sidecar/

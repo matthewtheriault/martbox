@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useProfile } from '../lib/ProfileContext'
 
 const icons = {
   home: (
@@ -16,10 +17,21 @@ const icons = {
       <path d="M8 21h8M12 18v3" />
     </>
   ),
+  liveTv: (
+    <>
+      <circle cx="12" cy="12" r="2.2" />
+      <path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.5 9.5 0 0 0 0 13M18.5 5.5a9.5 9.5 0 0 1 0 13" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3.2" />
       <path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-2.6-1.5L14 2h-4l-.5 2.5a7.7 7.7 0 0 0-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-.9c.77.65 1.65 1.16 2.6 1.5L10 22h4l.5-2.5a7.7 7.7 0 0 0 2.6-1.5l2.3.9 2-3.4-2-1.5Z" />
+    </>
+  ),
+  activity: (
+    <>
+      <path d="M3 12h4l2-7 6 14 2-7h4" />
     </>
   )
 }
@@ -33,6 +45,8 @@ function Icon({ name }: { name: keyof typeof icons }): JSX.Element {
 }
 
 export default function Sidebar(): JSX.Element {
+  const { activeProfile, switchProfile } = useProfile()
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -52,7 +66,23 @@ export default function Sidebar(): JSX.Element {
           <Icon name="tv" />
           <span>TV Shows</span>
         </NavLink>
+        <NavLink to="/live" className="sidebar-link">
+          <Icon name="liveTv" />
+          <span>Live TV</span>
+        </NavLink>
+        {activeProfile.isAdmin && (
+          <NavLink to="/activity" className="sidebar-link">
+            <Icon name="activity" />
+            <span>Activity</span>
+          </NavLink>
+        )}
       </nav>
+      <button className="sidebar-profile-badge" onClick={switchProfile}>
+        <span className="sidebar-profile-avatar" style={{ background: activeProfile.avatarId }}>
+          {activeProfile.name.charAt(0).toUpperCase()}
+        </span>
+        <span className="sidebar-profile-name">{activeProfile.name}</span>
+      </button>
       <NavLink to="/settings" className="sidebar-link sidebar-link-settings">
         <Icon name="settings" />
         <span>Settings</span>

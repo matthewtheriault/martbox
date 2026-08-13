@@ -10,17 +10,20 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "build:win": "electron-vite build && electron-builder --win --publish never",
-    "build:linux": "electron-vite build && electron-builder --linux --publish never",
-    "build:mac": "electron-vite build && electron-builder --mac --publish never",
+    "build:sidecar": "bash scripts/build-sidecar.sh",
+    "build:win": "npm run build:sidecar && electron-vite build && electron-builder --win --publish never",
+    "build:linux": "npm run build:sidecar && electron-vite build && electron-builder --linux --publish never",
+    "build:mac": "npm run build:sidecar && electron-vite build && electron-builder --mac --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",
+    "electron-updater": "^6.3.9",
     "express": "^4.21.2",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
-    "electron-updater": "^6.3.9"
+    "hls.js": "^1.7.0",
+    "sax": "^1.6.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -28,6 +31,7 @@
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/sax": "^1.2.7",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",

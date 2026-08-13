@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 
@@ -68,20 +68,117 @@ db.exec(`
     UNIQUE(show_id, season_number, episode_number)
   );
 
+  CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    avatar_id TEXT NOT NULL DEFAULT 'default',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_admin INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE TABLE IF NOT EXISTS watch_progress (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'episode')),
     media_id INTEGER NOT NULL,
     position_seconds REAL NOT NULL DEFAULT 0,
     duration_seconds REAL NOT NULL DEFAULT 0,
     watched INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(media_type, media_id)
+    UNIQUE(profile_id, media_type, media_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS iptv_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tvg_id TEXT,
+    name TEXT NOT NULL,
+    logo_url TEXT,
+    group_title TEXT,
+    stream_url TEXT NOT NULL,
+    sort_order INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS iptv_programmes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_tvg_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    start_at TEXT NOT NULL,
+    stop_at TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_episodes_show ON episodes(show_id);
   CREATE INDEX IF NOT EXISTS idx_watch_progress_updated ON watch_progress(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_iptv_channels_tvg_id ON iptv_channels(tvg_id);
+  CREATE INDEX IF NOT EXISTS idx_iptv_programmes_channel ON iptv_programmes(channel_tvg_id, start_at);
 `)
+
+function migrateWatchProgressForProfiles(): void {
+  const cols = db.prepare('PRAGMA table_info(watch_progress)').all() as { name: string }[]
+  if (cols.some((c) => c.name === 'profile_id')) return
+
+  const migrate = db.transaction(() => {
+    const rowCount = (
+      db.prepare('SELECT COUNT(*) as c FROM watch_progress').get() as { c: number }
+    ).c
+
+    let defaultProfileId: number | null = null
+    if (rowCount > 0) {
+      defaultProfileId = db
+        .prepare("INSERT INTO profiles (name, avatar_id) VALUES ('Home', 'default')")
+        .run().lastInsertRowid as number
+    }
+
+    db.exec(`
+      CREATE TABLE watch_progress_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'episode')),
+        media_id INTEGER NOT NULL,
+        position_seconds REAL NOT NULL DEFAULT 0,
+        duration_seconds REAL NOT NULL DEFAULT 0,
+        watched INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(profile_id, media_type, media_id)
+      );
+    `)
+
+    if (rowCount > 0 && defaultProfileId !== null) {
+      db.prepare(
+        `INSERT INTO watch_progress_new
+           (id, profile_id, media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
+         SELECT id, ?, media_type, media_id, position_seconds, duration_seconds, watched, updated_at
+         FROM watch_progress`
+      ).run(defaultProfileId)
+    }
+
+    db.exec('DROP TABLE watch_progress;')
+    db.exec('ALTER TABLE watch_progress_new RENAME TO watch_progress;')
+    db.exec('CREATE INDEX IF NOT EXISTS idx_watch_progress_updated ON watch_progress(updated_at);')
+    db.exec('CREATE INDEX IF NOT EXISTS idx_watch_progress_profile ON watch_progress(profile_id);')
+  })
+
+  migrate()
+}
+
+migrateWatchProgressForProfiles()
+db.exec('CREATE INDEX IF NOT EXISTS idx_watch_progress_profile ON watch_progress(profile_id);')
+
+function migrateProfilesForAdmin(): void {
+  const cols = db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'is_admin')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
+  }
+  // Existing installs upgrading from before this column existed have no
+  // admin yet — promote whoever was created first so the feature isn't
+  // dead on arrival for people who already have profiles.
+  const hasAdmin = db.prepare('SELECT 1 FROM profiles WHERE is_admin = 1 LIMIT 1').get()
+  if (!hasAdmin) {
+    db.exec('UPDATE profiles SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM profiles)')
+  }
+}
+
+migrateProfilesForAdmin()
 
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
@@ -94,4 +191,29 @@ export function setSetting(key: string, value: string): void {
   db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   ).run(key, value)
+}
+
+export function deleteSetting(key: string): void {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key)
+}
+
+// For secrets (e.g. the Tailscale API token) rather than plain settings like
+// tmdbApiKey. Encrypted at rest via the OS keychain (Electron safeStorage);
+// the stored value is meaningless outside this machine/user account.
+export function encryptedGetSetting(key: string): string | null {
+  const stored = getSetting(key)
+  if (stored === null) return null
+  if (!safeStorage.isEncryptionAvailable()) return null
+  try {
+    return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+  } catch {
+    return null
+  }
+}
+
+export function encryptedSetSetting(key: string, value: string): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('OS-level encryption is not available on this machine')
+  }
+  setSetting(key, safeStorage.encryptString(value).toString('base64'))
 }

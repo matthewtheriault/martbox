@@ -75,6 +75,169 @@ button {
   background: #000;
 }
 
+/* ---------- profile picker ---------- */
+
+.profile-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 2.4rem;
+  padding: 2rem;
+}
+
+.profile-picker-title {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.profile-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.6rem;
+}
+
+.profile-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0.4rem;
+  transition: transform 0.15s ease;
+}
+
+.profile-tile:hover {
+  transform: translateY(-4px);
+}
+
+.profile-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.profile-tile:hover .profile-avatar {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.profile-avatar-add {
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  color: var(--text-dimmer);
+}
+
+.profile-tile-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.profile-picker-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.6rem 1.8rem;
+  width: 320px;
+}
+
+.profile-picker-form input {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #1a1a20;
+  color: #fff;
+  font-size: 0.92rem;
+  outline: none;
+}
+
+.profile-picker-form input:focus {
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+}
+
+.profile-avatar-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+}
+
+.profile-avatar-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+}
+
+.profile-avatar-swatch.active {
+  border-color: #fff;
+}
+
+.profile-picker-form-actions {
+  display: flex;
+  gap: 0.7rem;
+}
+
+.sidebar-profile-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  text-align: left;
+  border-radius: 11px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-profile-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.sidebar-profile-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.sidebar-profile-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- sidebar ---------- */
 
 .sidebar {
@@ -621,6 +784,21 @@ button {
 .episode-title {
   font-weight: 600;
   margin-bottom: 0.3rem;
+}
+
+.activity-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dimmer);
+}
+
+.activity-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 0.68rem;
 }
 
 .watched-badge {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { useProfile } from '../lib/ProfileContext'
 import { streamUrl, formatTime } from '../lib/media'
 
 interface PlaybackTarget {
@@ -13,6 +14,7 @@ interface PlaybackTarget {
 export default function Player(): JSX.Element | null {
   const { mediaType, id } = useParams<{ mediaType: MediaType; id: string }>()
   const port = usePort()
+  const { activeProfile } = useProfile()
   const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [target, setTarget] = useState<PlaybackTarget | null>(null)
@@ -25,7 +27,7 @@ export default function Player(): JSX.Element | null {
     if (!mediaType || !id) return
 
     async function load(): Promise<void> {
-      const progress = await window.api.progress.get(mediaType as MediaType, mediaId)
+      const progress = await window.api.progress.get(activeProfile.id, mediaType as MediaType, mediaId)
       const startSeconds = progress && !progress.watched ? progress.positionSeconds : 0
 
       let title = ''
@@ -50,7 +52,7 @@ export default function Player(): JSX.Element | null {
     }
 
     load()
-  }, [mediaType, id, port])
+  }, [mediaType, id, port, activeProfile.id])
 
   useEffect(() => {
     const video = videoRef.current
@@ -74,11 +76,17 @@ export default function Player(): JSX.Element | null {
       const absolutePosition = offset + video.currentTime
       const duration = target.totalDurationSeconds || video.duration || absolutePosition
       if (absolutePosition > 0) {
-        window.api.progress.save(mediaType as MediaType, mediaId, absolutePosition, duration)
+        window.api.progress.save(
+          activeProfile.id,
+          mediaType as MediaType,
+          mediaId,
+          absolutePosition,
+          duration
+        )
       }
     }, 5000)
     return () => clearInterval(interval)
-  }, [mediaType, mediaId, target, offset])
+  }, [mediaType, mediaId, target, offset, activeProfile.id])
 
   const seekBy = (deltaSeconds: number): void => {
     const video = videoRef.current
@@ -95,7 +103,7 @@ export default function Player(): JSX.Element | null {
   const handleEnded = (): void => {
     if (!mediaType || !target) return
     const duration = target.totalDurationSeconds || offset
-    window.api.progress.save(mediaType as MediaType, mediaId, duration, duration)
+    window.api.progress.save(activeProfile.id, mediaType as MediaType, mediaId, duration, duration)
   }
 
   const handlePause = (): void => {
@@ -104,7 +112,13 @@ export default function Player(): JSX.Element | null {
     const absolutePosition = offset + video.currentTime
     const duration = target.totalDurationSeconds || video.duration || absolutePosition
     if (absolutePosition > 0) {
-      window.api.progress.save(mediaType as MediaType, mediaId, absolutePosition, duration)
+      window.api.progress.save(
+        activeProfile.id,
+        mediaType as MediaType,
+        mediaId,
+        absolutePosition,
+        duration
+      )
     }
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ContinueWatchingItem, Movie, Show } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { useProfile } from '../lib/ProfileContext'
 import { imageUrl } from '../lib/media'
 import Row from '../components/Row'
 import PosterCard from '../components/PosterCard'
@@ -9,18 +10,19 @@ import Hero from '../components/Hero'
 
 export default function Home(): JSX.Element {
   const port = usePort()
+  const { activeProfile } = useProfile()
   const navigate = useNavigate()
   const [continueWatching, setContinueWatching] = useState<ContinueWatchingItem[]>([])
   const [movies, setMovies] = useState<Movie[]>([])
   const [shows, setShows] = useState<Show[]>([])
 
   const refresh = (): void => {
-    window.api.continueWatching.list().then(setContinueWatching)
+    window.api.continueWatching.list(activeProfile.id).then(setContinueWatching)
     window.api.movies.list().then((m) => setMovies(m.slice(-20).reverse()))
     window.api.shows.list().then((s) => setShows(s.slice(-20).reverse()))
   }
 
-  useEffect(refresh, [])
+  useEffect(refresh, [activeProfile.id])
 
   const openContinueWatching = (item: ContinueWatchingItem): void => {
     if (item.mediaType === 'movie') navigate(`/play/movie/${item.mediaId}`)
