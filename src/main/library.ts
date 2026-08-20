@@ -36,8 +36,10 @@ export async function scanAndMatchLibrary(
       // Already matched (automatically or by hand via Edit Metadata) — a
       // rescan's job is finding new files, not re-deciding old ones. Without
       // this, every rescan re-ran the search and overwrote whatever was
-      // already there, silently undoing manual corrections.
-      if (movie.tmdbId) continue
+      // already there, silently undoing manual corrections. titleLocked
+      // covers a manual edit made *without* ever picking a tmdb match (so
+      // tmdbId alone wouldn't catch it).
+      if (movie.tmdbId || movie.titleLocked) continue
       try {
         const match = await matchMovie(movie.title, movie.year)
         const probe = await probeFile(movie.filePath)
@@ -78,8 +80,10 @@ export async function scanAndMatchLibrary(
         // re-deciding the show itself. Without this, every rescan re-ran the
         // search and overwrote whatever was already there (including a
         // manually-picked match), and re-merged on every pass for no reason.
+        // titleLocked covers a manual edit made *without* ever picking a
+        // tmdb match (so tmdbId alone wouldn't catch it).
         let updatedShow = show
-        if (!show.tmdbId) {
+        if (!show.tmdbId && !show.titleLocked) {
           const match = await matchShow(show.title, show.year)
           updatedShow = upsertShow({
             ...show,

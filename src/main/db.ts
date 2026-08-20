@@ -300,6 +300,34 @@ function migrateMoviesForTitleLock(): void {
 
 migrateMoviesForTitleLock()
 
+// Same as migrateMoviesForTitleLock, for shows — lets updateShow mark a
+// title as user-set so a rescan's automatic re-match step
+// (scanAndMatchLibrary) never overwrites it, even for a show with no
+// tmdb_id yet.
+function migrateShowsForTitleLock(): void {
+  const cols = db.prepare('PRAGMA table_info(shows)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'title_locked')) {
+    db.exec('ALTER TABLE shows ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0')
+  }
+}
+
+migrateShowsForTitleLock()
+
+// Lets mergeShows tombstone a folded-away show (point it at the show it was
+// merged into) instead of deleting its row outright. A rescan re-derives
+// show groupings purely from folder/file names on disk with no memory of
+// past merges — without this redirect left behind, the next rescan of a
+// merged-away folder would recreate it as a fresh duplicate show and pull
+// its episodes right back off the show it was merged into.
+function migrateShowsForMergeRedirect(): void {
+  const cols = db.prepare('PRAGMA table_info(shows)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'merged_into_id')) {
+    db.exec('ALTER TABLE shows ADD COLUMN merged_into_id INTEGER REFERENCES shows(id)')
+  }
+}
+
+migrateShowsForMergeRedirect()
+
 // Idempotent — covers installs that already have every other table but
 // predate the watchlist feature (CREATE TABLE up top only runs on a
 // brand-new database file).

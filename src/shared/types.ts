@@ -104,6 +104,7 @@ export interface Movie {
   cast: CastMember[]
   crew: CrewMember[]
   trailerKey: string | null
+  titleLocked: boolean
 }
 
 export interface Show {
@@ -123,6 +124,7 @@ export interface Show {
   cast: CastMember[]
   crew: CrewMember[]
   trailerKey: string | null
+  titleLocked: boolean
 }
 
 export interface Episode {
