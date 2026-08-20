@@ -4,14 +4,40 @@ import { registerIpcHandlers } from './ipc'
 import { startMediaServer, getMediaServerPort } from './mediaServer'
 import { startSidecar, stopSidecar } from './tsnetSidecar'
 import { getSetting } from './db'
+import { logError } from './errorLog'
+import { sweepOrphanedImages } from './imageCache'
 import type { RemoteAccessStatus } from '../shared/remoteAccess'
 import './db'
 
-const imageCacheDir = join(app.getPath('userData'), 'cache', 'images')
+// A packaged app has no visible console — without these, an error anywhere
+// outside an explicit try/catch would either crash the whole app silently or
+// vanish into the void with zero diagnostic trail. Logging and continuing is
+// the safer default for a long-running media server: dropping every remote
+// friend's connection over one bad request is worse than surviving it.
+process.on('uncaughtException', (err) => logError('uncaughtException', err))
+process.on('unhandledRejection', (reason) => logError('unhandledRejection', reason))
+
+const imageCacheDir = join(app.getPath('userData'), 'images-cache')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+
+// Nothing stops a user from double-launching MartBox (e.g. clicking the
+// shortcut twice) — two instances would both try to bind a media server and
+// open the same SQLite file concurrently. Bail out of the second one and
+// just surface the window the first instance already has.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+}
 
 function resolveIconPath(): string {
   return app.isPackaged
@@ -78,6 +104,12 @@ async function createWindow(): Promise<void> {
 
   await startMediaServer(imageCacheDir)
 
+  // MartBox can stay running for weeks at a time (closing the window only
+  // hides to tray), so a startup-only sweep isn't enough on its own — also
+  // re-check daily rather than requiring a restart to reclaim space.
+  sweepOrphanedImages(imageCacheDir)
+  setInterval(() => sweepOrphanedImages(imageCacheDir), 24 * 60 * 60 * 1000)
+
   registerIpcHandlers(mainWindow)
 
   const remoteAccessMode = getSetting('remoteAccessMode')
@@ -94,6 +126,10 @@ async function createWindow(): Promise<void> {
 
   if (process.env.ELECTRON_RENDERER_URL) {
     await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    // 'detach' pops DevTools into its own OS window instead of docking inside
+    // mainWindow, so it's unmistakably visible instead of a panel that's easy
+    // to miss (or gets squeezed out on a small/unfocused window).
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     await mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }

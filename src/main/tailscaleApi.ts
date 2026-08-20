@@ -1,9 +1,16 @@
 import { encryptedGetSetting } from './db'
+import type { TailscaleGuestDevice } from '../shared/remoteAccess'
 
 const API_BASE = 'https://api.tailscale.com/api/v2'
 
 function authHeader(token: string): string {
   return `Basic ${Buffer.from(`${token}:`).toString('base64')}`
+}
+
+function requireToken(): string {
+  const token = encryptedGetSetting('tailscaleApiToken')
+  if (!token) throw new Error('No Tailscale API token saved')
+  return token
 }
 
 export async function testApiToken(token: string): Promise<boolean> {
@@ -21,8 +28,7 @@ interface MintKeyOptions {
 }
 
 async function mintAuthKey(opts: MintKeyOptions): Promise<string> {
-  const token = encryptedGetSetting('tailscaleApiToken')
-  if (!token) throw new Error('No Tailscale API token saved')
+  const token = requireToken()
 
   const res = await fetch(`${API_BASE}/tailnet/-/keys`, {
     method: 'POST',
@@ -77,4 +83,37 @@ export function mintGuestKey(): Promise<string> {
     expirySeconds: 60 * 60,
     description: 'MartBox guest invite'
   })
+}
+
+// A guest device stays in the tailnet indefinitely once joined — the invite
+// key itself is single-use, but nothing else expires it. This is the only
+// way to actually revoke someone short of going to the Tailscale admin
+// console directly.
+export async function listGuestDevices(): Promise<TailscaleGuestDevice[]> {
+  const token = requireToken()
+  const res = await fetch(`${API_BASE}/tailnet/-/devices`, {
+    headers: { Authorization: authHeader(token) }
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Tailscale API error (${res.status}): ${text || res.statusText}`)
+  }
+  const data = (await res.json()) as {
+    devices: Array<{ id: string; hostname: string; tags?: string[]; lastSeen?: string }>
+  }
+  return (data.devices ?? [])
+    .filter((d) => (d.tags ?? []).includes('tag:martbox-guest'))
+    .map((d) => ({ id: d.id, hostname: d.hostname, lastSeen: d.lastSeen ?? null }))
+}
+
+export async function revokeGuestDevice(deviceId: string): Promise<void> {
+  const token = requireToken()
+  const res = await fetch(`${API_BASE}/device/${deviceId}`, {
+    method: 'DELETE',
+    headers: { Authorization: authHeader(token) }
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Tailscale API error (${res.status}): ${text || res.statusText}`)
+  }
 }

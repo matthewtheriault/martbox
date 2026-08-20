@@ -1,9 +1,16 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/ProfileContext'
 
 const icons = {
   home: (
     <path d="M3 11.5 12 4l9 7.5M5.5 10v9a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1v-9" />
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
   ),
   film: (
     <>
@@ -46,12 +53,37 @@ function Icon({ name }: { name: keyof typeof icons }): JSX.Element {
 
 export default function Sidebar(): JSX.Element {
   const { activeProfile, switchProfile } = useProfile()
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+
+  const runSearch = (): void => {
+    const trimmed = query.trim()
+    if (trimmed) navigate(`/search?q=${encodeURIComponent(trimmed)}`)
+  }
+
+  useEffect(() => {
+    window.api.updates
+      .check()
+      .then((result) => setUpdateAvailable(result.updateAvailable))
+      .catch(() => {})
+  }, [])
 
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
         <span className="sidebar-brand-mark" />
         <span className="sidebar-brand-text">martbox</span>
+      </div>
+      <div className="sidebar-search">
+        <Icon name="search" />
+        <input
+          type="text"
+          placeholder="Search…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+        />
       </div>
       <nav className="sidebar-nav">
         <NavLink to="/" end className="sidebar-link">
@@ -86,6 +118,7 @@ export default function Sidebar(): JSX.Element {
       <NavLink to="/settings" className="sidebar-link sidebar-link-settings">
         <Icon name="settings" />
         <span>Settings</span>
+        {updateAvailable && <span className="sidebar-update-dot" title="Update available" />}
       </NavLink>
     </aside>
   )

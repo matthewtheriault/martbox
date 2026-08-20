@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "build:win": "npm run build:sidecar && electron-vite build && electron-builder --win --publish never",
     "build:linux": "npm run build:sidecar && electron-vite build && electron-builder --linux --publish never",
@@ -17,7 +18,9 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.9",
     "better-sqlite3": "^11.9.1",
+    "compression": "^1.8.1",
     "electron-updater": "^6.3.9",
     "express": "^4.21.2",
     "ffmpeg-static": "^5.2.0",
@@ -27,6 +30,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
@@ -40,6 +44,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.1",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^4.1.10"
   }
 }

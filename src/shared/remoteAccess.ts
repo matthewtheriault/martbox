@@ -15,3 +15,9 @@ export interface InviteCode {
   hostAddr: string
   port: number
 }
+
+export interface TailscaleGuestDevice {
+  id: string
+  hostname: string
+  lastSeen: string | null
+}

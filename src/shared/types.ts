@@ -8,6 +8,72 @@ export interface Profile {
   avatarId: string
   createdAt: string
   isAdmin: boolean
+  hasPin: boolean
+}
+
+export interface CastMember {
+  name: string
+  character: string
+  profilePath: string | null
+}
+
+export interface CrewMember {
+  name: string
+  job: string
+}
+
+export type MovieMetadataPatch = Partial<
+  Pick<
+    Movie,
+    | 'title'
+    | 'year'
+    | 'overview'
+    | 'posterPath'
+    | 'backdropPath'
+    | 'rating'
+    | 'runtimeMinutes'
+    | 'tmdbId'
+    | 'genres'
+    | 'collectionId'
+    | 'collectionName'
+    | 'collectionPosterPath'
+    | 'cast'
+    | 'crew'
+    | 'trailerKey'
+  >
+>
+
+export type ShowMetadataPatch = Partial<
+  Pick<
+    Show,
+    | 'title'
+    | 'year'
+    | 'overview'
+    | 'posterPath'
+    | 'backdropPath'
+    | 'rating'
+    | 'tmdbId'
+    | 'genres'
+    | 'cast'
+    | 'crew'
+    | 'trailerKey'
+  >
+>
+
+export interface MovieSearchResult {
+  tmdbId: number
+  title: string
+  year: number | null
+  overview: string
+  posterPath: string | null
+}
+
+export interface ShowSearchResult {
+  tmdbId: number
+  title: string
+  year: number | null
+  overview: string
+  posterPath: string | null
 }
 
 export interface Library {
@@ -31,6 +97,13 @@ export interface Movie {
   rating: number | null
   runtimeMinutes: number | null
   addedAt: string
+  genres: string[]
+  collectionId: number | null
+  collectionName: string | null
+  collectionPosterPath: string | null
+  cast: CastMember[]
+  crew: CrewMember[]
+  trailerKey: string | null
 }
 
 export interface Show {
@@ -45,6 +118,11 @@ export interface Show {
   posterPath: string | null
   backdropPath: string | null
   rating: number | null
+  genres: string[]
+  addedAt: string
+  cast: CastMember[]
+  crew: CrewMember[]
+  trailerKey: string | null
 }
 
 export interface Episode {
@@ -98,6 +176,14 @@ export interface AppSettings {
   remoteAccessMode: RemoteAccessMode
 }
 
+export interface UpdateCheckResult {
+  updateAvailable: boolean
+  currentVersion: string
+  latestVersion: string | null
+  downloadUrl: string | null
+  notes: string | null
+}
+
 export interface IptvChannel {
   id: number
   tvgId: string | null
@@ -106,7 +192,26 @@ export interface IptvChannel {
   groupTitle: string | null
   sortOrder: number
   nowPlayingTitle: string | null
+  nowPlayingStartsAt: string | null
   nowPlayingEndsAt: string | null
+  nextProgrammeTitle: string | null
+  nextProgrammeStartsAt: string | null
+  isDead: boolean
+  checkedAt: string | null
+}
+
+export interface IptvHealthSummary {
+  total: number
+  checked: number
+  dead: number
+  running: boolean
+}
+
+export interface IptvHealthProgress {
+  current: number
+  total: number
+  dead: number
+  done: boolean
 }
 
 export interface IptvSettingsInfo {
@@ -122,6 +227,17 @@ export interface IptvRefreshResult {
   programmeCount: number
   refreshedAt: string
   error: string | null
+}
+
+export type WatchlistMediaType = 'movie' | 'show'
+
+export interface WatchlistItem {
+  mediaType: WatchlistMediaType
+  mediaId: number
+  addedAt: string
+  title: string
+  year: number | null
+  posterPath: string | null
 }
 
 export interface ActivityItem {

@@ -8,6 +8,8 @@ import type {
   Movie,
   Profile,
   Show,
+  WatchlistItem,
+  WatchlistMediaType,
   WatchProgress
 } from '../shared/types'
 
@@ -44,6 +46,20 @@ export async function renameProfile(id: number, name: string): Promise<void> {
 export async function deleteProfile(id: number): Promise<void> {
   await request(`/api/profiles/${id}`, { method: 'DELETE' })
 }
+export async function verifyProfilePin(id: number, pin: string): Promise<boolean> {
+  const result = await request<{ ok: boolean }>(`/api/profiles/${id}/verify-pin`, jsonInit('POST', { pin }))
+  return result.ok
+}
+export async function setProfilePin(
+  requestingProfileId: number,
+  targetProfileId: number,
+  pin: string | null
+): Promise<void> {
+  await request(
+    `/api/profiles/${targetProfileId}/pin`,
+    jsonInit('POST', { requestingProfileId, pin })
+  )
+}
 
 export function listMovies(libraryId?: number): Promise<Movie[]> {
   return request(`/api/movies${libraryId ? `?libraryId=${libraryId}` : ''}`)
@@ -71,33 +87,47 @@ export function getNextEpisodeToWatch(profileId: number, showId: number): Promis
 export function getProgress(
   profileId: number,
   mediaType: MediaType,
-  mediaId: number
+  mediaId: number,
+  pin?: string | null
 ): Promise<WatchProgress | null> {
-  return request(`/api/progress?profileId=${profileId}&mediaType=${mediaType}&mediaId=${mediaId}`)
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  return request(
+    `/api/progress?profileId=${profileId}&mediaType=${mediaType}&mediaId=${mediaId}${pinParam}`
+  )
 }
 export async function saveProgress(
   profileId: number,
   mediaType: MediaType,
   mediaId: number,
   positionSeconds: number,
-  durationSeconds: number
+  durationSeconds: number,
+  pin?: string | null
 ): Promise<void> {
   await request(
     '/api/progress',
-    jsonInit('POST', { profileId, mediaType, mediaId, positionSeconds, durationSeconds })
+    jsonInit('POST', { profileId, mediaType, mediaId, positionSeconds, durationSeconds, pin })
   )
 }
 export async function setWatched(
   profileId: number,
   mediaType: MediaType,
   mediaId: number,
-  watched: boolean
+  watched: boolean,
+  pin?: string | null
 ): Promise<void> {
-  await request('/api/progress/watched', jsonInit('POST', { profileId, mediaType, mediaId, watched }))
+  await request(
+    '/api/progress/watched',
+    jsonInit('POST', { profileId, mediaType, mediaId, watched, pin })
+  )
 }
 
-export function getContinueWatching(profileId: number): Promise<ContinueWatchingItem[]> {
-  return request(`/api/continueWatching?profileId=${profileId}`)
+export function getContinueWatching(
+  profileId: number,
+  _limit?: number,
+  pin?: string | null
+): Promise<ContinueWatchingItem[]> {
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  return request(`/api/continueWatching?profileId=${profileId}${pinParam}`)
 }
 
 export function listIptvChannels(): Promise<IptvChannel[]> {
@@ -106,4 +136,52 @@ export function listIptvChannels(): Promise<IptvChannel[]> {
 
 export function getAllActivity(): Promise<ActivityItem[]> {
   return request('/api/activity')
+}
+
+export function listWatchlist(profileId: number, pin?: string | null): Promise<WatchlistItem[]> {
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  return request(`/api/watchlist?profileId=${profileId}${pinParam}`)
+}
+export async function isInWatchlist(
+  profileId: number,
+  mediaType: WatchlistMediaType,
+  mediaId: number,
+  pin?: string | null
+): Promise<boolean> {
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  const result = await request<{ inWatchlist: boolean }>(
+    `/api/watchlist/has?profileId=${profileId}&mediaType=${mediaType}&mediaId=${mediaId}${pinParam}`
+  )
+  return result.inWatchlist
+}
+export async function addToWatchlist(
+  profileId: number,
+  mediaType: WatchlistMediaType,
+  mediaId: number,
+  pin?: string | null
+): Promise<void> {
+  await request('/api/watchlist', jsonInit('POST', { profileId, mediaType, mediaId, pin }))
+}
+export async function removeFromWatchlist(
+  profileId: number,
+  mediaType: WatchlistMediaType,
+  mediaId: number,
+  pin?: string | null
+): Promise<void> {
+  await request('/api/watchlist/remove', jsonInit('POST', { profileId, mediaType, mediaId, pin }))
+}
+
+export function getLibrarySeenAt(
+  profileId: number,
+  pin?: string | null
+): Promise<{ movies: string | null; shows: string | null }> {
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  return request(`/api/librarySeenAt?profileId=${profileId}${pinParam}`)
+}
+export async function markLibrarySeen(
+  profileId: number,
+  mediaType: 'movie' | 'show',
+  pin?: string | null
+): Promise<void> {
+  await request('/api/librarySeenAt', jsonInit('POST', { profileId, mediaType, pin }))
 }

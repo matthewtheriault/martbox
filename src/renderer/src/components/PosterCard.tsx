@@ -1,8 +1,11 @@
+import type { ReactNode } from 'react'
+
 interface PosterCardProps {
   title: string
-  subtitle?: string | null
+  subtitle?: ReactNode
   posterUrl?: string
   progressFraction?: number
+  badge?: ReactNode
   onClick: () => void
 }
 
@@ -11,6 +14,7 @@ export default function PosterCard({
   subtitle,
   posterUrl,
   progressFraction,
+  badge,
   onClick
 }: PosterCardProps): JSX.Element {
   return (
@@ -21,6 +25,7 @@ export default function PosterCard({
         ) : (
           <div className="poster-card-placeholder">{title}</div>
         )}
+        {badge && <div className="poster-card-badge">{badge}</div>}
         <div className="poster-card-scrim">
           <span className="poster-card-play">
             <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
