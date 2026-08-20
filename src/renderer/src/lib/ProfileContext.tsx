@@ -28,8 +28,16 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
   // the chooser on the next launch, so no separate setting is needed.
   const [roleChosen, setRoleChosen] = useState(false)
 
+  // Joining a friend's server kicks off the Tailscale sidecar connection
+  // without waiting for it (connectClient resolves immediately), so this can
+  // fire before the sidecar has a local port to forward through yet and
+  // throw "Not connected to a host yet". That's transient — retry instead of
+  // leaving profiles null forever, which stalls the whole app on the
+  // "Starting MartBox…" screen with no recovery.
   const refreshProfiles = (): void => {
-    window.api.profiles.list().then(setProfiles)
+    window.api.profiles.list().then(setProfiles).catch(() => {
+      setTimeout(refreshProfiles, 1000)
+    })
   }
 
   useEffect(() => {
