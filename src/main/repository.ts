@@ -75,7 +75,8 @@ function rowToMovie(r: any): Movie {
     collectionPosterPath: r.collection_poster_path,
     cast: castFromDb(r.cast_json),
     crew: crewFromDb(r.crew_json),
-    trailerKey: r.trailer_key
+    trailerKey: r.trailer_key,
+    titleLocked: !!r.title_locked
   }
 }
 
@@ -96,7 +97,8 @@ function rowToShow(r: any): Show {
     addedAt: r.added_at,
     cast: castFromDb(r.cast_json),
     crew: crewFromDb(r.crew_json),
-    trailerKey: r.trailer_key
+    trailerKey: r.trailer_key,
+    titleLocked: !!r.title_locked
   }
 }
 
@@ -212,7 +214,9 @@ export function upsertMovie(m: Omit<Movie, 'id' | 'addedAt'>): Movie {
        @castJson, @crewJson, @trailerKey
      )
      ON CONFLICT(file_path) DO UPDATE SET
-       title = excluded.title, sort_title = excluded.sort_title, year = excluded.year,
+       title = CASE WHEN title_locked = 0 THEN excluded.title ELSE title END,
+       sort_title = CASE WHEN title_locked = 0 THEN excluded.sort_title ELSE sort_title END,
+       year = excluded.year,
        tmdb_id = excluded.tmdb_id, overview = excluded.overview, poster_path = excluded.poster_path,
        backdrop_path = excluded.backdrop_path, rating = excluded.rating, runtime_minutes = excluded.runtime_minutes,
        genres = excluded.genres, collection_id = excluded.collection_id,
@@ -354,7 +358,9 @@ export function upsertShow(s: Omit<Show, 'id' | 'addedAt'>): Show {
     `INSERT INTO shows (library_id, folder_path, title, sort_title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres, cast_json, crew_json, trailer_key)
      VALUES (@libraryId, @folderPath, @title, @sortTitle, @year, @tmdbId, @overview, @posterPath, @backdropPath, @rating, @genres, @castJson, @crewJson, @trailerKey)
      ON CONFLICT(folder_path) DO UPDATE SET
-       title = excluded.title, sort_title = excluded.sort_title, year = excluded.year,
+       title = CASE WHEN title_locked = 0 THEN excluded.title ELSE title END,
+       sort_title = CASE WHEN title_locked = 0 THEN excluded.sort_title ELSE sort_title END,
+       year = excluded.year,
        tmdb_id = excluded.tmdb_id, overview = excluded.overview, poster_path = excluded.poster_path,
        backdrop_path = excluded.backdrop_path, rating = excluded.rating, genres = excluded.genres,
        cast_json = excluded.cast_json, crew_json = excluded.crew_json, trailer_key = excluded.trailer_key`
@@ -373,7 +379,11 @@ export function upsertShow(s: Omit<Show, 'id' | 'addedAt'>): Show {
 // already exists from a different library (e.g. the same series' other
 // seasons on E:) instead of creating a duplicate per drive.
 export function findShowByTitle(title: string): Show | null {
-  const row = db.prepare('SELECT * FROM shows WHERE lower(title) = lower(?) ORDER BY id LIMIT 1').get(title)
+  const row = db
+    .prepare(
+      'SELECT * FROM shows WHERE lower(title) = lower(?) AND merged_into_id IS NULL ORDER BY id LIMIT 1'
+    )
+    .get(title)
   return row ? rowToShow(row) : null
 }
 
@@ -382,7 +392,9 @@ export function findShowByTitle(title: string): Show | null {
 // correctly resolve to the same TMDb entry — the tmdb_id is a much more
 // reliable identity than the parsed title string once a match exists.
 export function findShowByTmdbId(tmdbId: number): Show | null {
-  const row = db.prepare('SELECT * FROM shows WHERE tmdb_id = ? ORDER BY id LIMIT 1').get(tmdbId)
+  const row = db
+    .prepare('SELECT * FROM shows WHERE tmdb_id = ? AND merged_into_id IS NULL ORDER BY id LIMIT 1')
+    .get(tmdbId)
   return row ? rowToShow(row) : null
 }
 
@@ -391,19 +403,31 @@ export function findShowByTmdbId(tmdbId: number): Show | null {
 // moment that show gets TMDb-matched or manually renamed. Checking every dir
 // in the group (not just the representative one) covers season-per-folder
 // releases where the "representative" dir can vary between scans.
+//
+// A matched row may be a tombstone left behind by mergeShows/foldShowFolderPath
+// (merged_into_id set) rather than a live show — follow that redirect chain
+// so a rescan of a merged-away folder lands back on the show it was folded
+// into instead of resurrecting it as a fresh duplicate.
 export function findShowByFolderPathAny(folderPaths: string[]): Show | null {
   if (folderPaths.length === 0) return null
   const placeholders = folderPaths.map(() => '?').join(',')
-  const row = db
+  let row = db
     .prepare(`SELECT * FROM shows WHERE folder_path IN (${placeholders}) ORDER BY id LIMIT 1`)
-    .get(...folderPaths)
+    .get(...folderPaths) as any
+  while (row && row.merged_into_id != null) {
+    row = db.prepare('SELECT * FROM shows WHERE id = ?').get(row.merged_into_id)
+  }
   return row ? rowToShow(row) : null
 }
 
 export function listShows(libraryId?: number): Show[] {
   const rows = libraryId
-    ? db.prepare('SELECT * FROM shows WHERE library_id = ? ORDER BY sort_title').all(libraryId)
-    : db.prepare('SELECT * FROM shows ORDER BY sort_title').all()
+    ? db
+        .prepare(
+          'SELECT * FROM shows WHERE library_id = ? AND merged_into_id IS NULL ORDER BY sort_title'
+        )
+        .all(libraryId)
+    : db.prepare('SELECT * FROM shows WHERE merged_into_id IS NULL ORDER BY sort_title').all()
   return (rows as any[]).map(rowToShow)
 }
 
@@ -412,6 +436,10 @@ export function getShow(id: number): Show | null {
   return row ? rowToShow(row) : null
 }
 
+// Manual metadata edit (or applying a manually-chosen TMDb match) — always
+// sets title_locked so a future rescan's automatic re-match step
+// (scanAndMatchLibrary's `!show.tmdbId` re-search) never overwrites it, even
+// for a show that was edited without ever getting a tmdb_id.
 export function updateShow(id: number, patch: ShowMetadataPatch): Show {
   const current = getShow(id)
   if (!current) throw new Error('Show not found')
@@ -420,7 +448,8 @@ export function updateShow(id: number, patch: ShowMetadataPatch): Show {
     `UPDATE shows SET
        title = @title, sort_title = @sortTitle, year = @year, overview = @overview,
        poster_path = @posterPath, backdrop_path = @backdropPath, rating = @rating, tmdb_id = @tmdbId,
-       genres = @genres, cast_json = @castJson, crew_json = @crewJson, trailer_key = @trailerKey
+       genres = @genres, cast_json = @castJson, crew_json = @crewJson, trailer_key = @trailerKey,
+       title_locked = 1
      WHERE id = @id`
   ).run({
     id,
@@ -494,7 +523,7 @@ export function pruneMissingEpisodes(libraryRootPath: string, foundPaths: Set<st
 
 // Manual fixup for shows the scanner couldn't merge on its own (different
 // titles/spellings entirely). Moves every episode from each source show
-// onto the target show, then deletes the now-empty source shows.
+// onto the target show, then tombstones the now-empty source shows.
 export function mergeShows(targetId: number, sourceIds: number[]): Show {
   const target = getShow(targetId)
   if (!target) throw new Error('Target show not found')
@@ -520,7 +549,19 @@ export function mergeShows(targetId: number, sourceIds: number[]): Show {
         }
       }
 
-      db.prepare('DELETE FROM shows WHERE id = ?').run(sourceId)
+      // Tombstone rather than delete: a rescan re-derives show groupings
+      // straight from folder/file names on disk, with no memory of this
+      // merge — without a redirect left behind, the very next rescan would
+      // recreate this source show from its still-present folder and pull
+      // the episodes right back off the target, silently undoing the merge.
+      // Flatten first so anything already redirecting into this source
+      // (an earlier merge) points straight at the new target instead of
+      // chaining through it.
+      db.prepare('UPDATE shows SET merged_into_id = ? WHERE merged_into_id = ?').run(
+        targetId,
+        sourceId
+      )
+      db.prepare('UPDATE shows SET merged_into_id = ? WHERE id = ?').run(targetId, sourceId)
     }
   })
   tx()
@@ -642,8 +683,19 @@ export function registerEpisodeFile(e: {
   return rowToEpisode(db.prepare('SELECT * FROM episodes WHERE file_path = ?').get(e.filePath))
 }
 
-export function deleteShowByFolderPath(folderPath: string): void {
-  db.prepare('DELETE FROM shows WHERE folder_path = ?').run(folderPath)
+// Used by the scanner when this scan's title-based grouping folds a folder
+// into a show whose canonical row lives at a different folder_path (e.g. two
+// release folders that now parse to the same title, or a folder already
+// merged in via mergeShows). Tombstones rather than deletes, for the same
+// reason mergeShows does — so the fold sticks on every future rescan instead
+// of the loser folder resurrecting itself as a fresh duplicate the next time
+// it's walked.
+export function foldShowFolderPath(folderPath: string, targetId: number): void {
+  db.prepare('UPDATE shows SET merged_into_id = ? WHERE folder_path = ? AND id != ?').run(
+    targetId,
+    folderPath,
+    targetId
+  )
 }
 
 export function listEpisodes(showId: number): Episode[] {
@@ -677,7 +729,9 @@ export function searchLibrary(query: string): LibrarySearchResults {
   ).map(rowToMovie)
   const shows = (
     db
-      .prepare('SELECT * FROM shows WHERE title LIKE ? ORDER BY sort_title LIMIT 25')
+      .prepare(
+        'SELECT * FROM shows WHERE title LIKE ? AND merged_into_id IS NULL ORDER BY sort_title LIMIT 25'
+      )
       .all(like) as any[]
   ).map(rowToShow)
   return { movies, shows }
@@ -697,7 +751,11 @@ export function getShowsByTmdbIds(tmdbIds: number[]): Show[] {
   if (tmdbIds.length === 0) return []
   const placeholders = tmdbIds.map(() => '?').join(',')
   return (
-    db.prepare(`SELECT * FROM shows WHERE tmdb_id IN (${placeholders})`).all(...tmdbIds) as any[]
+    db
+      .prepare(
+        `SELECT * FROM shows WHERE tmdb_id IN (${placeholders}) AND merged_into_id IS NULL`
+      )
+      .all(...tmdbIds) as any[]
   ).map(rowToShow)
 }
 

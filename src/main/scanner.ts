@@ -5,7 +5,7 @@ import {
   registerMovieFile,
   upsertShow,
   registerEpisodeFile,
-  deleteShowByFolderPath,
+  foldShowFolderPath,
   findShowByTitle,
   findShowByFolderPathAny,
   pruneMissingMovies,
@@ -59,6 +59,21 @@ function listSubdirectories(dir: string): string[] {
   }
   return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e) => join(dir, e.name))
+}
+
+// Non-recursive: only files sitting directly in `dir`, not inside any of its
+// subdirectories (those are already covered separately by walk() over each
+// show folder — recursing here too would double-count them).
+function listTopLevelVideoFiles(dir: string): string[] {
+  let entries: import('fs').Dirent[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter((e) => e.isFile() && !e.name.startsWith('.') && isVideoFile(e.name))
     .map((e) => join(dir, e.name))
 }
 
@@ -344,6 +359,7 @@ interface ShowGroup {
   year: number | null
   representativeDir: string
   dirs: string[]
+  looseFiles: string[]
 }
 
 export function scanTvLibrary(library: Library): Show[] {
@@ -380,14 +396,41 @@ export function scanTvLibrary(library: Library): Show[] {
       group.dirs.push(dir)
       if (group.year === null && year !== null) group.year = year
     } else {
-      groups.set(key, { title, year, representativeDir: dir, dirs: [dir] })
+      groups.set(key, { title, year, representativeDir: dir, dirs: [dir], looseFiles: [] })
+    }
+  }
+
+  // Some releases are dropped straight into the library root as a loose file
+  // instead of a per-show folder (e.g. "TV Shows\Ted.Lasso.S04E03...mkv"
+  // sitting next to "TV Shows\Ted Lasso\"). Only relevant when there are
+  // other show folders present — with none at all, dirsToProcess above
+  // already falls back to walking the whole library root as one flat show.
+  if (showDirs.length > 0) {
+    for (const file of listTopLevelVideoFiles(library.path)) {
+      const name = basename(file, extname(file))
+      const parsed = parseEpisodeName(name)
+      if (!parsed || !parsed.showTitle) continue
+
+      const key = parsed.showTitle.toLowerCase()
+      const group = groups.get(key)
+      if (group) {
+        group.looseFiles.push(file)
+      } else {
+        groups.set(key, {
+          title: parsed.showTitle,
+          year: null,
+          representativeDir: join(library.path, parsed.showTitle),
+          dirs: [],
+          looseFiles: [file]
+        })
+      }
     }
   }
 
   const allFoundFiles = new Set<string>()
 
   for (const group of groups.values()) {
-    const files = group.dirs.flatMap(walk)
+    const files = [...group.dirs.flatMap(walk), ...group.looseFiles]
     for (const file of files) allFoundFiles.add(file)
     if (files.length === 0) continue
 
@@ -399,10 +442,22 @@ export function scanTvLibrary(library: Library): Show[] {
     // overview/poster/etc. back to null, silently undoing the match (or a
     // manual edit) every time.
     //
+    // Always include representativeDir even when it's not already one of
+    // group.dirs — true for a loose-file-only group, whose dirs is empty.
+    // Without it, this lookup is skipped entirely (findShowByFolderPathAny
+    // short-circuits on an empty array) and every rescan falls through to
+    // upsertShow's ON CONFLICT(folder_path), which — despite matching the
+    // exact same synthetic path as last time — re-triggers the very reset
+    // this lookup exists to prevent, and quietly reassigns the file's
+    // episode row onto that reset show every time.
+    //
     // Only once that fails do we fold into a same-titled show from another
     // library (seasons spread across drives), then finally create new.
+    const lookupDirs = group.dirs.includes(group.representativeDir)
+      ? group.dirs
+      : [group.representativeDir, ...group.dirs]
     const show =
-      findShowByFolderPathAny(group.dirs) ??
+      findShowByFolderPathAny(lookupDirs) ??
       findShowByTitle(group.title) ??
       upsertShow({
         libraryId: library.id,
@@ -418,7 +473,8 @@ export function scanTvLibrary(library: Library): Show[] {
         genres: [],
         cast: [],
         crew: [],
-        trailerKey: null
+        trailerKey: null,
+        titleLocked: false
       })
     shows.push(show)
 
@@ -440,9 +496,11 @@ export function scanTvLibrary(library: Library): Show[] {
     // — episodes above were just reassigned to the merged show via
     // upsertEpisode's ON CONFLICT(file_path), so any other folder's leftover
     // show row (which may not be group.representativeDir, when `show` came
-    // from findShowByTitle instead of this group) is now empty and safe to drop.
+    // from findShowByTitle instead of this group) is now empty and safe to
+    // fold away. Folding (not deleting) keeps this stable on the *next*
+    // rescan too — see foldShowFolderPath.
     for (const dir of group.dirs) {
-      if (dir !== show.folderPath) deleteShowByFolderPath(dir)
+      if (dir !== show.folderPath) foldShowFolderPath(dir, show.id)
     }
   }
 
