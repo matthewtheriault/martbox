@@ -78,6 +78,7 @@ async function createWindow(): Promise<void> {
     show: false,
     backgroundColor: '#0b0b0f',
     autoHideMenuBar: true,
+    icon: resolveIconPath(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -131,7 +132,26 @@ async function createWindow(): Promise<void> {
     // to miss (or gets squeezed out on a small/unfocused window).
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    await mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    await loadPackagedRendererWithRetry(mainWindow)
+  }
+}
+
+// On a fresh/unsigned install, antivirus real-time scanning can briefly lock
+// the just-written app.asar right as Electron tries to open index.html out
+// of it, failing the load with ERR_FAILED and leaving mainWindow permanently
+// black (nothing re-triggers loadFile on its own). That lock is transient —
+// a short retry loop recovers instead of requiring the user to relaunch.
+async function loadPackagedRendererWithRetry(win: BrowserWindow, maxAttempts = 5): Promise<void> {
+  const filePath = join(__dirname, '../renderer/index.html')
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await win.loadFile(filePath)
+      return
+    } catch (err) {
+      logError('loadPackagedRendererWithRetry', err)
+      if (attempt === maxAttempts) throw err
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+    }
   }
 }
 

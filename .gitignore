@@ -5,6 +5,7 @@ dist-electron/
 release/
 build/*
 !build/icon.png
+!build/icon.ico
 *.log
 npm-debug.log*
 .DS_Store
