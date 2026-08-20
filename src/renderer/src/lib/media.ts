@@ -3,6 +3,15 @@ export function imageUrl(path: string | null, port: number): string | undefined 
   return `http://127.0.0.1:${port}/image?path=${encodeURIComponent(path)}`
 }
 
+// Cast photos are numerous and mostly never seen (nobody scrolls through
+// every credit), so unlike posters/backdrops they're deliberately not
+// downloaded/cached locally — this links straight to TMDb's CDN, same as
+// the uncached search-result posters already do.
+export function tmdbImageUrl(path: string | null, size: 'w185' = 'w185'): string | undefined {
+  if (!path) return undefined
+  return `https://image.tmdb.org/t/p/${size}${path}`
+}
+
 export function streamUrl(
   mediaType: 'movie' | 'episode',
   id: number,
@@ -18,6 +27,10 @@ export function formatRuntime(minutes: number | null): string {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+export function formatClockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
 export function formatTime(seconds: number): string {
