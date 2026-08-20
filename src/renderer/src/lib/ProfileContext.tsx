@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Profile } from '../../../shared/types'
-import type { RemoteAccessMode } from '../../../shared/remoteAccess'
+import type { RemoteAccessMode, RemoteAccessStatus } from '../../../shared/remoteAccess'
 import ProfilePicker from '../components/ProfilePicker'
 import ServerModeChooser from '../components/ServerModeChooser'
 
@@ -27,16 +27,24 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
   // profile (or connected as a client), that fact alone is enough to skip
   // the chooser on the next launch, so no separate setting is needed.
   const [roleChosen, setRoleChosen] = useState(false)
+  const [remoteStatus, setRemoteStatus] = useState<RemoteAccessStatus>({ status: 'idle' })
+  // A sidecar error is terminal for the current connection attempt (bad/
+  // expired invite, host unreachable, etc.) — retrying the profiles fetch
+  // forever in that case would just silently spin rather than let the user
+  // know something is actually wrong. Ref because refreshProfiles's retry
+  // closure needs the latest value without re-subscribing to status.
+  const givenUp = useRef(false)
 
   // Joining a friend's server kicks off the Tailscale sidecar connection
   // without waiting for it (connectClient resolves immediately), so this can
   // fire before the sidecar has a local port to forward through yet and
-  // throw "Not connected to a host yet". That's transient — retry instead of
-  // leaving profiles null forever, which stalls the whole app on the
-  // "Starting MartBox…" screen with no recovery.
+  // throw "Not connected to a host yet". That's transient on a normal
+  // connection (a slower machine/network just takes longer) — retry instead
+  // of leaving profiles null forever with the loading screen giving no sign
+  // of what's actually happening.
   const refreshProfiles = (): void => {
     window.api.profiles.list().then(setProfiles).catch(() => {
-      setTimeout(refreshProfiles, 1000)
+      if (!givenUp.current) setTimeout(refreshProfiles, 1000)
     })
   }
 
@@ -45,10 +53,48 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
   }, [])
 
   useEffect(() => {
+    if (remoteMode !== 'client') return
+    window.api.remoteAccess.getStatus().then(setRemoteStatus)
+    return window.api.remoteAccess.onStatus((status) => {
+      setRemoteStatus(status)
+      if (status.status === 'error') givenUp.current = true
+    })
+  }, [remoteMode])
+
+  useEffect(() => {
     if (remoteMode !== null) refreshProfiles()
   }, [remoteMode])
 
-  if (remoteMode === null || profiles === null) return <div className="app-loading">Starting MartBox…</div>
+  // Bails all the way back out to the host-vs-join choice — the only way out
+  // of a connection that's never going to succeed (bad/expired invite, host
+  // offline) since Settings itself is unreachable without a profile yet.
+  const abortConnect = (): void => {
+    givenUp.current = false
+    setRemoteStatus({ status: 'idle' })
+    setRemoteMode('off')
+    setRoleChosen(false)
+    setProfiles(null)
+    window.api.remoteAccess.disable()
+  }
+
+  if (remoteMode === null || profiles === null) {
+    const stuck = remoteMode === 'client' && (remoteStatus.status === 'error' || givenUp.current)
+    return (
+      <div className="app-loading">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div>{stuck ? (remoteStatus.message ?? 'Could not connect to that server.') : 'Starting MartBox…'}</div>
+          {remoteMode === 'client' && !stuck && remoteStatus.status !== 'idle' && (
+            <div className="settings-hint">Connecting to host… ({remoteStatus.status})</div>
+          )}
+          {remoteMode === 'client' && (
+            <button className="btn-secondary" onClick={abortConnect}>
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   // First run only: remote access has never been configured and there's no
   // local profile yet. Resolve host-vs-join before any profile picker shows,
