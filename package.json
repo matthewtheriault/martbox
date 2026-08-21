@@ -1,6 +1,6 @@
 {
   "name": "martbox",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "MartBox - a self-hosted media server & native desktop app for Movies and TV Shows",
   "main": "./out/main/index.js",
   "author": "matthewtheriault",

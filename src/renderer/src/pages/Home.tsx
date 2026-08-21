@@ -17,10 +17,17 @@ export default function Home(): JSX.Element {
   const [shows, setShows] = useState<Show[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
 
+  // movies.list()/shows.list() come back ordered by sort_title (alphabetical,
+  // for the library browse pages) — sort by addedAt here instead so this row
+  // actually reflects scan recency rather than an alphabetical slice that
+  // barely shifts as new titles come in.
+  const byRecentlyAdded = <T extends { addedAt: string }>(items: T[]): T[] =>
+    [...items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 20)
+
   const refresh = (): void => {
     window.api.continueWatching.list(activeProfile.id, profilePin).then(setContinueWatching)
-    window.api.movies.list().then((m) => setMovies(m.slice(-20).reverse()))
-    window.api.shows.list().then((s) => setShows(s.slice(-20).reverse()))
+    window.api.movies.list().then((m) => setMovies(byRecentlyAdded(m)))
+    window.api.shows.list().then((s) => setShows(byRecentlyAdded(s)))
     window.api.watchlist.list(activeProfile.id, profilePin).then(setWatchlist)
   }
 
