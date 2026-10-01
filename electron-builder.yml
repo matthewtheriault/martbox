@@ -1,0 +1,54 @@
+appId: com.matthewtheriault.martbox
+productName: MartBox
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/node_modules/ffmpeg-static/**'
+  - '**/node_modules/ffprobe-static/**'
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+afterPack: scripts/afterPackSidecar.js
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.entertainment
+# Mac App Store target — built separately via `npm run build:mas`, never as
+# part of the default `mac` target above, so a plain `npm run build:mac`
+# keeps producing the same direct-download .dmg it always has. See
+# "MartBox App Store info/Submission Materials/Entitlements/
+# electron-builder-mas-config-snippet.md" for the full rationale.
+mas:
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  category: public.app-category.entertainment
+  hardenedRuntime: false
+  # Add once registered in App Store Connect and downloaded from the Apple
+  # Developer portal — electron-builder can't produce a submittable MAS
+  # package without it. Also needs a "3rd Party Mac Developer Application"
+  # + "3rd Party Mac Developer Installer" certificate pair, not the
+  # Developer ID certificate the dmg target uses.
+  # provisioningProfile: build/MartBox_MAS.provisionprofile
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Video
