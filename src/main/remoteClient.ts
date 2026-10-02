@@ -26,10 +26,16 @@ function baseUrl(): string {
   return `http://127.0.0.1:${port}`
 }
 
+const REQUEST_TIMEOUT_MS = 35_000
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${baseUrl()}${path}`, {
     ...init,
-    headers: { ...(init?.headers as Record<string, string> | undefined), ...authHeaders() }
+    headers: { ...(init?.headers as Record<string, string> | undefined), ...authHeaders() },
+    // A request is never left hanging — just over the sidecar's 30 s dial
+    // budget, so a host that's genuinely unreachable fails and the caller's
+    // retry gets a fresh attempt.
+    signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   })
   if (res.status === 401) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
