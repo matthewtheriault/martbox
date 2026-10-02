@@ -142,6 +142,73 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 **Total: ~9–14 months.** The cost multiplier is that each media type ships
 on 5–6 clients.
 
+With Claude doing most of the coding, closer to 2–4 months — set mostly by
+real-device and real-network testing time.
+
+## Phase details
+
+Each phase has a "done when" test; checklists also live in the MartBox Plan
+doc.
+
+**Phase 1 — Remote access v2.** See `REMOTE_ACCESS_PLAN.md`. Done when a
+friend signs in with a login code, streams 1080p smoothly from outside the
+house, and the dashboard shows their connection.
+
+**Phase 2 — Android + Fire TV.** Done when a friend on an Android phone and
+on a Fire TV stick signs in with a code and streams remotely.
+- New private repo, like the iOS/tvOS apps.
+- **Tailscale bridge for Android:** build tsnet with gomobile (stock gomobile
+  supports Android; the iOS/tvOS `TsnetBridge` is Apple-only).
+- Sign-in: QR scan on phones, short code entry with the Fire TV remote.
+- Home, Movies, TV Shows, detail pages, search, watchlist, profile picker.
+- Player on Media3/ExoPlayer: resume, subtitles, audio tracks; reports
+  HEVC/HDR support to the server for per-device direct play.
+- Fire TV layout with Compose for TV and D-pad navigation.
+- Instant reconnect on foreground.
+- Signed APK + sideload steps (Fire TV via the Downloader app); Play Store
+  optional ($25 one-time).
+
+**Phase 3 — Music.** Done when an album plays gapless in lossless at home and
+keeps playing with the phone locked when away.
+- Server: scan music folders, tags (artist/album/track/disc), album art.
+- FLAC/ALAC/MP3/AAC/Opus; lossless at home, AAC/Opus when the remote path
+  needs it.
+- Artists/albums/tracks/genres views, search, playlists, per-user history.
+- Gapless player with queue/shuffle/repeat; background + lock-screen
+  controls on iOS and Android; desktop, tvOS and Fire TV too.
+- Later: CarPlay (needs an Apple CarPlay entitlement) and Android Auto.
+
+**Phase 4 — Retro games.** Done when a GBA game plays on an iPhone with
+on-screen controls, then continues from the same save on another device with
+a controller. See "Retro games approach" above; also:
+- Licence audit of every core before integrating.
+- Server stores saves and save states per user.
+- App Store review prep (guideline 4.7: emulators for user-owned games).
+
+**Phase 5 — Audiobooks & podcasts.** Done when an audiobook resumes at the
+same spot on a different device.
+- Server: audiobooks (M4B/MP3, chapters, covers, author/narrator); podcasts
+  via RSS subscriptions the server downloads.
+- Chapters, playback speed, sleep timer, skip forward/back, background
+  playback, per-user position sync, offline downloads. TV optional.
+
+**Phase 6 — Ebooks & comics.** Done when a comic opened on an iPad picks up on
+the same page on a phone.
+- Server: EPUB/PDF/CBZ/CBR/CB7, covers, series, authors.
+- EPUB reader (font size, light/dark/sepia, reflow), PDF viewer, comic
+  viewer (single/two-page, right-to-left manga mode, zoom).
+- Per-user reading progress sync, offline downloads. Not on TV.
+
+**Phase 7 — CD ripping.** Done when an inserted CD ends up as a tagged FLAC
+album with cover art in the music library.
+- Needs a CD/DVD drive on the host (a USB drive if the PC has none — a
+  one-off hardware purchase, the host's call).
+- Rip to FLAC/ALAC with AccurateRip verification; track names from
+  MusicBrainz (free); cover art; files land in the Phase 3 library.
+
+**Phase 8 — Redesign.** Done when all six platforms share the new look and
+design rules. See below.
+
 ## Redesign (Phase 8, after everything else)
 
 Draft direction — to be refined before starting.
@@ -172,6 +239,7 @@ Note: screens built in Phases 2–7 will be restyled here. Agreeing the design
 tokens before Phase 2 would reduce that rework (optional).
 
 ## Open questions
+- Does the host PC have a CD/DVD drive? (Phase 7.)
 - Are friends connecting directly or relayed? (Decides whether the Oracle
   peer relay is needed.)
 - Host upload bandwidth (caps simultaneous remote streams/bitrate).
