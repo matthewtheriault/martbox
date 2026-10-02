@@ -367,8 +367,6 @@ version ships early.
 **Privacy & security**
 - Admin-only: dashboard endpoints require an admin device key; never served
   to friend devices.
-- Friends are told at sign-in that the server owner can see what they watch
-  (like Plex).
 - No IP geolocation or IP addresses shown — device name and path type only.
 - History retention configurable (default 90 days); "clear history" button.
 
