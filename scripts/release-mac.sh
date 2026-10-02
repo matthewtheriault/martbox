@@ -29,10 +29,29 @@ if ! command -v go >/dev/null 2>&1 && [[ -x "$HOME/sdk/go/bin/go" ]]; then
   export PATH="$HOME/sdk/go/bin:$PATH"
 fi
 
-rm -f release/latest-mac.yml release/MartBox-"$VERSION"*
+# Only this version's build output is kept locally — older versions are on
+# their GitHub releases, and each set of builds is over a gigabyte.
+shopt -s nullglob
+for f in release/MartBox-* release/latest-mac.yml release/latest.yml; do
+  case "$(basename "$f")" in
+    MartBox-"$VERSION"[.-]* | MartBox-Setup-"$VERSION".*) ;;
+    *) rm -f "$f" ;;
+  esac
+done
+rm -f release/latest-mac.yml release/MartBox-"$VERSION"[.-]*
+
+# A dmg build that fails mid-way (e.g. hdiutil "Resource temporarily
+# unavailable") leaves its temporary image mounted, which then makes the next
+# build fail the same way. Detach any of electron-builder's leftovers first.
+hdiutil info | awk '
+  /^image-path/ { img = ($3 ~ /\/T\/t-[^\/]+\/[0-9]+\.dmg$/) }
+  img && /^\/dev\/disk[0-9]+[ \t]/ { print $1; img = 0 }
+' | while read -r dev; do
+  hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+done
+
 npm run build:mac
 
-shopt -s nullglob
 FILES=(
   release/latest-mac.yml
   release/MartBox-"$VERSION"*.dmg
