@@ -112,6 +112,11 @@ request sends the device key; the login code is useless after redemption.
 
 ## Phases
 
+**Build order (2026-10-02):** Phase 0 ✓ → Phase 1 users ✓ → Phase 2
+Tailscale speed ✓ → **Phase 3 iPhone/Apple TV sign-in** (unblocks "require a
+login") → dashboard v1 (Now Playing + Network) → Phase 4 4K/HDR → dashboard
+v2/v3.
+
 **Done when** a friend signs in with a login code, streams 1080p smoothly
 from outside the house, and the dashboard shows their connection.
 

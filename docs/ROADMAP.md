@@ -21,9 +21,15 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
    login code/QR; the friend signs in with it and the device keeps its own
    revocable key. Per-user watch history and profiles ship with remote
    access (Phase 1), not with the redesign.
-5. **Redesign last:** the vibrant/modern UI overhaul (Phase 7) starts after
-   Phases 1–6 are built.
+5. **Redesign last:** the vibrant/modern UI overhaul (Phase 8) starts after
+   Phases 1–7 are built. The colours, type and spacing rules are agreed
+   earlier (Phase 2) so new apps are built in the new style from the start.
 6. **Native Mac app:** deferred — decide later (see Open questions).
+7. **Order follows who uses MartBox (2026-10-02):** friends and family mostly
+   use Apple devices and Fire TV sticks, some a web browser. So: finish
+   remote access with iPhone/Apple TV sign-in first; the Fire TV app before
+   the Android phone layout; audio types back-to-back (shared player);
+   retro games, the biggest and riskiest step, last of the media types.
 
 ## Goals
 - Everything **free to run** — no paid relays, servers, or subscriptions.
@@ -120,13 +126,15 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 | # | Phase | Clients | Size |
 |---|---|---|---|
 | 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
-| 1 | Remote access v2 (Tailscale speed + users/login codes + 4K/HDR direct play, quality ladder, HW transcode + server dashboard) | all | 5–7 wks |
-| 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
-| 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
-| 4 | Retro games | all | 8–12 wks |
-| 5 | Audiobooks & podcasts | phones/desktop (TV optional) | 3–5 wks |
+| 1 | Remote access v2 — in this order: users/login codes ✓, Tailscale speed ✓, iPhone/Apple TV sign-in, dashboard v1, 4K/HDR + HW transcode, dashboard v2/v3 | all | 5–7 wks |
+| 2 | Design foundations: colour palette, type, spacing rules (no restyle yet) | all | 2–4 days |
+| 3 | Fire TV app first, then the Android phone layout (one codebase) | Fire TV, Android | 8–12 wks |
+| 3b | Optional: MartBox Web for friends who already run Tailscale | browser | 1–2 wks |
+| 4 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
+| 5 | Audiobooks & podcasts (reuses the music player) | phones/desktop (TV optional) | 2–4 wks |
 | 6 | Ebooks & comics readers | phones/tablets/desktop (not TV) | 3–5 wks |
-| 7 | Redesign: vibrant, sleek modern UI + minor features (below) | all | 4–8 wks |
+| 7 | Retro games | all | 8–12 wks |
+| 8 | Redesign: apply the new look everywhere + minor features (below) | all | 4–8 wks |
 
 **Total: ~9–14 months.** The cost multiplier is that each media type ships
 on 5–6 clients.
@@ -151,15 +159,26 @@ both pick up a new release by themselves and keep all their data. See
   set; Windows CI attaches `latest.yml` + blockmap to tagged releases.
 - Host `GET /api/version` + `API_VERSION`; client apps show "update the
   server" / "update this app" on a mismatch.
-- iOS/tvOS update via TestFlight/App Store; Android (Phase 2) gets an
+- iOS/tvOS update via TestFlight/App Store; Android/Fire TV (Phase 3) gets an
   in-app "new version" prompt that downloads the APK.
 
 **Phase 1 — Remote access v2.** See `REMOTE_ACCESS_PLAN.md`. Done when a
 friend signs in with a login code, streams 1080p smoothly from outside the
-house, and the dashboard shows their connection.
+house, and the dashboard shows their connection. Order: users/login codes
+and security review (done), Tailscale speed and access rules (done),
+iPhone/Apple TV sign-in (unblocks "require a login"), dashboard v1 (Now
+Playing + Network, the measuring tool for the next part), 4K/HDR and
+transcoding, dashboard v2/v3.
 
-**Phase 2 — Android + Fire TV.** Done when a friend on an Android phone and
-on a Fire TV stick signs in with a code and streams remotely.
+**Phase 2 — Design foundations.** Done when the palette, type scale, spacing
+and corner rules are written down as design tokens and shown on one sample
+screen. No restyling of existing screens yet — it means the Fire TV app and
+everything after it are built in the new style from the start.
+
+**Phase 3 — Fire TV + Android.** Done when a friend on a Fire TV stick, then
+on an Android phone, signs in with a code and streams remotely. Fire TV
+comes first (friends use Fire TV sticks); the phone layout follows on the
+same codebase.
 - New private repo, like the iOS/tvOS apps.
 - **Tailscale bridge for Android:** build tsnet with gomobile (stock gomobile
   supports Android; the iOS/tvOS `TsnetBridge` is Apple-only).
@@ -172,7 +191,15 @@ on a Fire TV stick signs in with a code and streams remotely.
 - Signed APK + sideload steps (Fire TV via the Downloader app); Play Store
   optional ($25 one-time).
 
-**Phase 3 — Music.** Done when an album plays gapless in lossless at home and
+**Phase 3b (optional) — MartBox Web.** For friends who'd rather use a
+browser and already run Tailscale (a browser can't join the tailnet itself).
+The host serves the app over HTTPS at its tailnet name (tsnet provides the
+certificate); sign-in with a login code, key kept in the browser. Anyone
+without Tailscale uses the desktop app instead — it is the web experience,
+installed once. A public, nothing-installed web app (Plex-style) would need
+the host reachable from the internet and stays out of scope.
+
+**Phase 4 — Music.** Done when an album plays gapless in lossless at home and
 keeps playing with the phone locked when away.
 - Server: scan music folders, tags (artist/album/track/disc), album art.
 - FLAC/ALAC/MP3/AAC/Opus; lossless at home, AAC/Opus when the remote path
@@ -182,15 +209,9 @@ keeps playing with the phone locked when away.
   controls on iOS and Android; desktop, tvOS and Fire TV too.
 - Later: CarPlay (needs an Apple CarPlay entitlement) and Android Auto.
 
-**Phase 4 — Retro games.** Done when a GBA game plays on an iPhone with
-on-screen controls, then continues from the same save on another device with
-a controller. See "Retro games approach" above; also:
-- Licence audit of every core before integrating.
-- Server stores saves and save states per user.
-- App Store review prep (guideline 4.7: emulators for user-owned games).
-
 **Phase 5 — Audiobooks & podcasts.** Done when an audiobook resumes at the
-same spot on a different device.
+same spot on a different device. Straight after music: it reuses the audio
+player, background playback and library scanning.
 - Server: audiobooks (M4B/MP3, chapters, covers, author/narrator); podcasts
   via RSS subscriptions the server downloads.
 - Chapters, playback speed, sleep timer, skip forward/back, background
@@ -203,10 +224,17 @@ the same page on a phone.
   viewer (single/two-page, right-to-left manga mode, zoom).
 - Per-user reading progress sync, offline downloads. Not on TV.
 
-**Phase 7 — Redesign.** Done when all six platforms share the new look and
-design rules. See below.
+**Phase 7 — Retro games.** Done when a GBA game plays on an iPhone with
+on-screen controls, then continues from the same save on another device with
+a controller. See "Retro games approach" above; also:
+- Licence audit of every core before integrating.
+- Server stores saves and save states per user.
+- App Store review prep (guideline 4.7: emulators for user-owned games).
 
-## Redesign (Phase 7, after everything else)
+**Phase 8 — Redesign.** Done when all six platforms share the new look and
+design rules (agreed in Phase 2). See below.
+
+## Redesign (Phase 8, after everything else)
 
 Draft direction — to be refined before starting.
 
@@ -232,8 +260,9 @@ Draft direction — to be refined before starting.
 - "Year in review" stats screen.
 - Trailers on movie/show pages.
 
-Note: screens built in Phases 2–6 will be restyled here. Agreeing the design
-tokens before Phase 2 would reduce that rework (optional).
+The design tokens are agreed in Phase 2, so screens built in Phases 3–7
+already use them; this phase restyles what came before and adds the minor
+features.
 
 ## Open questions
 - Are friends connecting directly or relayed? (Relayed friends get capped
