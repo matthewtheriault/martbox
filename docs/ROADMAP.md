@@ -21,8 +21,8 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
    login code/QR; the friend signs in with it and the device keeps its own
    revocable key. Per-user watch history and profiles ship with remote
    access (Phase 1), not with the redesign.
-5. **Redesign last:** the vibrant/modern UI overhaul (Phase 8) starts after
-   Phases 1–7 are built.
+5. **Redesign last:** the vibrant/modern UI overhaul (Phase 7) starts after
+   Phases 1–6 are built.
 6. **Native Mac app:** deferred — decide later (see Open questions).
 
 ## Goals
@@ -33,9 +33,10 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
 ## Scope
 
 **In:** Movies & TV, music (incl. lossless), audiobooks & podcasts, ebooks
-(EPUB/PDF), comics (CBZ/CBR/CB7), retro games, CD ripping.
+(EPUB/PDF), comics (CBZ/CBR/CB7), retro games.
 
-**Out:** photos, home/personal videos, music videos, short-form video; Roku,
+**Out:** photos, home/personal videos, music videos, short-form video, CD
+ripping (dropped 2026-10-02 — not needed); Roku,
 Samsung (Tizen), LG (webOS).
 
 **Platforms:**
@@ -137,8 +138,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 | 4 | Retro games | all | 8–12 wks |
 | 5 | Audiobooks & podcasts | phones/desktop (TV optional) | 3–5 wks |
 | 6 | Ebooks & comics readers | phones/tablets/desktop (not TV) | 3–5 wks |
-| 7 | CD ripping (FLAC/ALAC) | desktop host | 1–3 wks |
-| 8 | Redesign: vibrant, sleek modern UI + minor features (below) | all | 4–8 wks |
+| 7 | Redesign: vibrant, sleek modern UI + minor features (below) | all | 4–8 wks |
 
 **Total: ~9–14 months.** The cost multiplier is that each media type ships
 on 5–6 clients.
@@ -215,17 +215,10 @@ the same page on a phone.
   viewer (single/two-page, right-to-left manga mode, zoom).
 - Per-user reading progress sync, offline downloads. Not on TV.
 
-**Phase 7 — CD ripping.** Done when an inserted CD ends up as a tagged FLAC
-album with cover art in the music library.
-- Needs a CD/DVD drive on the host (a USB drive if the PC has none — a
-  one-off hardware purchase, the host's call).
-- Rip to FLAC/ALAC with AccurateRip verification; track names from
-  MusicBrainz (free); cover art; files land in the Phase 3 library.
-
-**Phase 8 — Redesign.** Done when all six platforms share the new look and
+**Phase 7 — Redesign.** Done when all six platforms share the new look and
 design rules. See below.
 
-## Redesign (Phase 8, after everything else)
+## Redesign (Phase 7, after everything else)
 
 Draft direction — to be refined before starting.
 
@@ -251,11 +244,10 @@ Draft direction — to be refined before starting.
 - "Year in review" stats screen.
 - Trailers on movie/show pages.
 
-Note: screens built in Phases 2–7 will be restyled here. Agreeing the design
+Note: screens built in Phases 2–6 will be restyled here. Agreeing the design
 tokens before Phase 2 would reduce that rework (optional).
 
 ## Open questions
-- Does the host PC have a CD/DVD drive? (Phase 7.)
 - Are friends connecting directly or relayed? (Decides whether the Oracle
   peer relay is needed.)
 - Host upload bandwidth (caps simultaneous remote streams/bitrate).
