@@ -10,13 +10,25 @@ import type {
   Show,
   UpdateCheckResult
 } from '../../../shared/types'
-import type {
-  RemoteAccessMode,
-  RemoteAccessStatus,
-  TailscaleGuestDevice
+import {
+  TSNET_UDP_PORT,
+  type PeerConnection,
+  type RemoteAccessMode,
+  type RemoteAccessStatus,
+  type TailscaleGuestDevice
 } from '../../../shared/remoteAccess'
 import { useProfile } from '../lib/ProfileContext'
 import { AVATAR_COLORS } from '../lib/avatars'
+
+function PeerPathLabel({ peer }: { peer: PeerConnection | undefined }): JSX.Element | null {
+  if (!peer) return null
+  if (!peer.online) return <span className="library-type"> · Offline</span>
+  if (peer.path === 'direct') return <span className="settings-status-ok"> · Direct connection</span>
+  if (peer.path === 'relayed') {
+    return <span className="settings-status-error"> · Relayed (slower)</span>
+  }
+  return <span className="library-type"> · Online, not streaming</span>
+}
 
 export default function Settings(): JSX.Element {
   const navigate = useNavigate()
@@ -574,6 +586,16 @@ export default function Settings(): JSX.Element {
                 {remoteStatus.status === 'connected' && (
                   <div className="settings-subsection">
                     <h3>Connected Friends</h3>
+                    {guests?.some(
+                      (g) =>
+                        remoteStatus.peers?.find((p) => p.hostname === g.hostname)?.path === 'relayed'
+                    ) && (
+                      <p className="settings-hint">
+                        Some friends are connecting through Tailscale&apos;s relay servers, which
+                        limits streaming speed. For a direct connection, enable UPnP on your router
+                        or forward UDP port {TSNET_UDP_PORT} to this computer.
+                      </p>
+                    )}
                     {guestsError && <p className="settings-status-error">{guestsError}</p>}
                     {guests && guests.length === 0 && (
                       <p className="settings-hint">No friends have joined yet.</p>
@@ -589,6 +611,9 @@ export default function Settings(): JSX.Element {
                                   ? `Last seen ${new Date(guest.lastSeen).toLocaleString()}`
                                   : 'Never seen'}
                               </span>
+                              <PeerPathLabel
+                                peer={remoteStatus.peers?.find((p) => p.hostname === guest.hostname)}
+                              />
                             </div>
                             <div className="library-actions">
                               <button
@@ -626,7 +651,17 @@ export default function Settings(): JSX.Element {
             <p className="settings-hint">
               Status: {remoteStatus.status}
               {remoteStatus.message && ` — ${remoteStatus.message}`}
+              {remoteStatus.status === 'connected' && (
+                <PeerPathLabel peer={remoteStatus.peers?.[0]} />
+              )}
             </p>
+            {remoteStatus.peers?.[0]?.path === 'relayed' && (
+              <p className="settings-hint">
+                Your connection to this server is going through Tailscale&apos;s relay servers,
+                which limits streaming speed. The server owner can fix this by enabling UPnP on
+                their router or forwarding UDP port {TSNET_UDP_PORT}.
+              </p>
+            )}
             {connectError && <p className="settings-status-error">{connectError}</p>}
           </>
         )}

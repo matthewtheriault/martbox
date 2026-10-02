@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { app } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import type { RemoteAccessStatus } from '../shared/remoteAccess'
+import { TSNET_FIXED_PORT, TSNET_UDP_PORT, type RemoteAccessStatus } from '../shared/remoteAccess'
 
 let child: ChildProcess | null = null
 let currentLocalPort: number | null = null
@@ -47,10 +47,16 @@ export function startSidecar(opts: StartSidecarOptions): void {
   const args = ['--mode', opts.mode, '--state-dir', stateDir]
   if (opts.mode === 'host') {
     if (!opts.forwardTo) throw new Error('forwardTo is required in host mode')
-    args.push('--forward-to', opts.forwardTo)
+    args.push('--forward-to', opts.forwardTo, '--udp-port', String(TSNET_UDP_PORT))
   } else {
     if (!opts.hostAddr) throw new Error('hostAddr is required in client mode')
-    args.push('--host', opts.hostAddr)
+    // remoteAccessHostAddr is persisted as a bare tailnet IP, so the
+    // relaunch path in index.ts passes it without a port — the sidecar needs
+    // ip:port to dial the host.
+    const hostAddr = opts.hostAddr.includes(':')
+      ? opts.hostAddr
+      : `${opts.hostAddr}:${TSNET_FIXED_PORT}`
+    args.push('--host', hostAddr)
   }
 
   const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'] })
