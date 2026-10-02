@@ -208,6 +208,78 @@ request sends the device key; the login code is useless after redemption.
   client read-ahead buffers; cap simultaneous remote streams by upload.
   Longer term: multi-rendition HLS so players adapt automatically.
 
+### Server dashboard (Plex Dash-style, built up across Phases 1–4)
+
+A **Dashboard** tab in the host app, admin-only, showing who's using the
+server, what they're watching, and how the network and hardware are coping.
+It doubles as the measuring tool for the Phase 2 speed work, so a first
+version ships early.
+
+**Build order**
+- **v1 (with Phases 1–2):** Now Playing + Network panels. Needs users
+  (Phase 1) and the Phase 0 diagnostics.
+- **v2 (with Phase 4):** Hardware + transcoding panels.
+- **v3 (after Phase 4):** History, stats, alerts, and the dashboard on
+  mobile for admin devices.
+
+**Now Playing** (one card per active stream, live)
+- User + avatar, device (e.g. "Alex's iPhone"), title with poster, progress
+  bar, paused/playing.
+- **Direct play vs transcode** — and why (codec, bitrate cap, subtitle
+  burn-in); source → output resolution/bitrate.
+- Connection: LAN / Tailscale direct / peer relay / DERP relay, latency, and
+  the stream's current bandwidth.
+- Buffering events in the last few minutes.
+- Admin actions: stop a stream (with an optional message).
+
+**Network**
+- Live host upload/download graph; total remote bandwidth vs measured upload
+  capacity ("3 streams using 18 of 25 Mbps").
+- Per-friend: path type, latency, last throughput test, data used today.
+- Peer relay status (if set up): online, traffic through it.
+- "Run speed test" button (host upload + per-friend throughput).
+
+**Hardware**
+- CPU, RAM, GPU/encoder utilisation; which encoder is in use (NVENC / QSV /
+  AMF / VideoToolbox / software).
+- Per-transcode speed (e.g. "1.8× realtime") and fps — below 1× means the
+  viewer will buffer; flag it.
+- Disk: free space on library and cache drives, read throughput.
+- Temperatures where the OS exposes them.
+
+**History & stats (v3)**
+- Play history (who, what, when, how long, direct/transcode, path).
+- Most-watched titles, per-user watch time, peak concurrent streams,
+  bandwidth over 24 h / 7 d / 30 d.
+- Library totals (movies, episodes, size).
+
+**Alerts (v3)**
+- Upload saturated, transcode below realtime, friend stuck on DERP relay,
+  disk nearly full, peer relay offline. Shown in the dashboard and as a
+  desktop notification.
+
+**How it works**
+- **Sessions:** `mediaServer.ts` tracks a session per stream (user, device,
+  item, transcode decision); clients send a playback heartbeat every ~10 s
+  (position, state, buffering events).
+- **Network:** per-peer bytes and path from tsnet status (sidecar JSON
+  stream); host interface counters for totals.
+- **Hardware:** the `systeminformation` npm package for CPU/RAM/disk/temps;
+  `nvidia-smi` for NVIDIA GPUs; ffmpeg's `-progress` output for transcode
+  speed/fps. Apple GPU and some Intel/AMD GPU stats may be limited without
+  elevated permissions — show what's available, never ask for admin rights.
+- **Live updates:** server-sent events from the main process to the renderer
+  (and to admin devices over the tailnet in v3).
+- **History:** a `play_history` table in SQLite, with a retention setting.
+
+**Privacy & security**
+- Admin-only: dashboard endpoints require an admin device key; never served
+  to friend devices.
+- Friends are told at sign-in that the server owner can see what they watch
+  (like Plex).
+- No IP geolocation or IP addresses shown — device name and path type only.
+- History retention configurable (default 90 days); "clear history" button.
+
 ## Security
 
 Tailscale-only exposes nothing to the open internet: all traffic is
