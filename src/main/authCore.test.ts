@@ -168,7 +168,7 @@ describe('media tokens', () => {
   })
 
   it('only covers media routes', () => {
-    for (const p of ['/stream/movie/1', '/probe/episode/2', '/subtitles/movie/1/0', '/image']) {
+    for (const p of ['/stream/movie/1', '/probe/episode/2', '/subtitles/movie/1/0', '/image', '/hls/movie/1/index.m3u8', '/hls/session/x/seg00000.ts']) {
       expect(isMediaRoute(p)).toBe(true)
     }
     for (const p of ['/api/movies', '/api/profiles', '/api/auth/me', '/images', '/streams']) {
