@@ -132,7 +132,9 @@ request sends the device key; the login code is useless after redemption.
 - Run `tailscale netcheck` on the host: reports UDP, IPv6, NAT type ("mapping
   varies by destination" = hard NAT) and nearest DERP. Replaces the manual
   CGNAT check.
-- Measure host upload bandwidth.
+- Measure host upload bandwidth **on the server PC itself**, several times
+  incl. busy evenings; plan around the lowest result. Note whether its
+  Wi-Fi is on 5 GHz or 2.4 GHz.
 - Add a per-friend **throughput test** (time a fixed-size download over the
   tailnet) next to the direct/relayed status.
 
@@ -140,6 +142,10 @@ request sends the device key; the login code is useless after redemption.
 - The Express server in `src/main/mediaServer.ts` currently has **no auth**;
   it relies on loopback/tailnet isolation. Tailscale ACLs are the first
   layer; per-user auth is the second, and gives each friend their own data:
+  - **Builds on the existing profiles** in `src/main/db.ts` (name, avatar,
+    optional PIN, `is_admin`, per-profile watch progress). Today a request
+    just names a `profileId` (+ PIN if set) — there's no session tying a
+    device to a profile. Phase 1 turns profiles into real users.
   - **Server-local users** (Jellyfin/Emby model, no sign-up, no central
     service — free). Settings → Users: admin creates a user (name, avatar,
     optional limits: remote access on/off, max content rating), which
@@ -150,10 +156,10 @@ request sends the device key; the login code is useless after redemption.
     disable a user, or issue a new login code (e.g. new phone). Disabling a
     user also removes their tailnet devices via the Tailscale API.
   - **Per-user data:** watch progress, Continue Watching, watchlist (and
-    later music history, game saves). Existing single-user rows migrate to
-    the admin user.
-  - Optional **profile PIN** for shared devices (e.g. a living-room Apple TV
-    with a profile picker).
+    later music history, game saves) — already per-profile; extend as
+    needed.
+  - Existing **profile PINs** stay for shared devices (e.g. a living-room
+    Apple TV with a profile picker), now checked server-side per session.
   - Middleware checking `Authorization: Bearer <device key>` on all `/api/*`, `/stream/*`,
     `/probe/*`, `/image`, `/live/*` routes.
   - Players can't always set headers on media requests (AVPlayer, `<video>`
@@ -193,20 +199,110 @@ request sends the device key; the login code is useless after redemption.
   instead of an error. Playback resumes from position.
 - Keep v1 invite codes working during transition.
 
-### Phase 4 — Hardware transcoding + efficient streaming
-- Swap `ffmpeg-static` (likely built without GPU encoders) for
-  **jellyfin-ffmpeg** portable builds (NVENC / QSV / AMF / VAAPI /
-  VideoToolbox).
-- At startup, probe candidate encoders with a 1-second test encode; pick the
-  first that works, fall back to `libx264` (current behavior in
-  `mediaServer.ts`).
-- Add `-hwaccel auto` decoding.
-- Offer a few fixed remote-quality levels (e.g. Original / 1080p 8 Mbps /
-  720p 3 Mbps / 480p 1.5 Mbps); default each friend to a level that fits
-  their measured path (Phase 0 throughput test) and the host's upload.
-- Direct play when the path has room; HLS segments for transcodes; larger
-  client read-ahead buffers; cap simultaneous remote streams by upload.
-  Longer term: multi-rendition HLS so players adapt automatically.
+### Phase 4 — Hardware transcoding, 4K/HDR + efficient streaming
+
+**Already built** (`src/main/mediaServer.ts`, `src/main/ffprobe.ts`):
+- Hardware *encoder* detection at startup — `h264_nvenc` / `h264_qsv` /
+  `h264_amf`, each proven with a tiny test encode, falling back to
+  `libx264`. The bundled `ffmpeg-static` does include these encoders
+  (benchmarked: `h264_amf` ~5× realtime on a 1080p30 source).
+- Direct play for H.264 + AAC/MP3 in MP4/M4V/MOV; H.264 in other containers
+  (e.g. MKV) is remuxed (`-c:v copy`), audio converted to AAC.
+- Fragmented MP4 output with a keyframe every 2 s.
+
+**Gaps today**
+- **No resolution or bitrate control:** a 4K HEVC source is re-encoded to
+  *4K* H.264 with no bitrate cap — heavy for the host and far too big for a
+  remote upload.
+- **HEVC is never direct-played**, even to devices that support it (Apple TV
+  4K, recent iPhones/iPads, many Android TV devices) — wastes the GPU and
+  loses HDR. Direct-play rules aren't per-device.
+- **No HDR → SDR tone mapping:** HDR sources transcoded for SDR screens look
+  washed out (or the encode fails on 10-bit input).
+- **Decoding is software-only** (no `-hwaccel`), so 4K HEVC decode lands on
+  the CPU.
+- **Audio always downmixed to stereo** (`-ac 2`) — no 5.1.
+- **No VideoToolbox** in the encoder list, so macOS hosts always encode in
+  software.
+
+**To build**
+1. **Per-device direct play.** Clients report what they can play (codecs incl.
+   HEVC/HDR10/Dolby Vision, max resolution, audio channels). If the device
+   supports the source and the path has the bandwidth: send it as-is, or
+   **remux** MKV → fragmented MP4 with `-c:v copy` (`-tag:v hvc1` for HEVC on
+   Apple). Zero quality loss, near-zero host load. This is the default for
+   4K whenever possible.
+2. **Quality ladder with downscaling:** Original → 1080p (~8–10 Mbps H.264 /
+   ~5–6 Mbps HEVC) → 720p (~3–4 Mbps) → 480p (~1.5 Mbps). Picked per friend
+   from the measured path (Phase 0 throughput test) and the host's upload;
+   viewer can override.
+3. **HEVC output** for devices that support it — same quality at ~40% less
+   bitrate, so the host's upload carries more streams.
+4. **HDR → SDR tone mapping** when transcoding HDR for an SDR device (GPU
+   tone mapping via OpenCL in jellyfin-ffmpeg; CPU `zscale`+`tonemap`
+   fallback).
+5. **Hardware decoding** (`-hwaccel d3d11va` on Windows, `videotoolbox` on
+   macOS, `vaapi` on Linux), with the frames kept on the GPU through
+   scale/tone-map/encode where the driver allows.
+6. **Surround audio:** pass 5.1 through (or encode AC3/EAC3 5.1) when the
+   device supports it; stereo AAC otherwise.
+7. **VideoToolbox** (`h264_videotoolbox` / `hevc_videotoolbox`) added to the
+   encoder probe for macOS hosts.
+8. Consider **jellyfin-ffmpeg** portable builds if `ffmpeg-static` lacks
+   what 4–5 need (OpenCL tone mapping, newer AMF/QSV features).
+9. **Efficient streaming:** HLS segments for transcodes (segments in RAM or
+   on a data drive, never the small system SSD), larger client read-ahead
+   buffers, cap simultaneous remote streams by upload. Longer term:
+   multi-rendition HLS so players adapt automatically.
+
+**What decides how a 4K file plays**
+
+| Situation | Result |
+|---|---|
+| 4K-capable device, at home, supports the codec/HDR | Sent as-is (or remuxed) — full 4K HDR, no host load |
+| Same, remote, host upload comfortably above the file's bitrate | Sent as-is — full 4K |
+| Remote, upload too slow (typical for 40–80 Mbps disc rips) | Transcoded to 1080p (tone-mapped if the screen is SDR) |
+| Device can't play HEVC | Transcoded to H.264, downscaled to fit |
+
+Resolution alone never forces a transcode — the codec support and the
+bitrate vs the path do.
+
+### Reference host hardware
+
+The dev/reference host: AMD Ryzen 5 5500 (6C/12T, no integrated GPU),
+AMD Radeon RX Vega 56, 32 GB RAM, small NVMe system SSD, 4 × 4–6 TB HDDs for
+media, Windows, **Wi-Fi** to the router.
+
+| Part | Role | Notes |
+|---|---|---|
+| Vega 56 | All hardware video work | Decodes H.264 and HEVC incl. 4K 10-bit HDR; encodes H.264 + HEVC (8-bit) via AMF; strong enough for OpenCL tone mapping. **No hardware AV1 or VP9 decode** |
+| Ryzen 5 5500 | Server, DB, audio, fallback | Software-decodes AV1/VP9 sources; software encode as last resort |
+| 32 GB RAM | Plenty | Room to hold HLS segments in memory |
+| NVMe system SSD | DB, image cache | Small — keep transcode/segment output off it |
+| 4 × HDD | Media | 80 Mbps (≈10 MB/s) per 4K remux stream is a small fraction of HDD throughput. Drive spin-down can add a few seconds at play start |
+
+**Rough concurrent capacity** (estimates — the dashboard will show real
+numbers):
+
+| Stream type | Concurrent streams |
+|---|---|
+| Direct play / remux (incl. 4K) | Many — limited by upload, not hardware |
+| 1080p HEVC → 1080p H.264 | ~4–6 |
+| 4K HDR → 1080p SDR (scale + tone map) | ~2–3 |
+| 4K → 4K re-encode | ~1 — avoid; direct-play instead |
+
+**Host-specific notes**
+- Prefer **HEVC output** to supporting devices to stretch upload.
+- AMD's older AMF H.264 encoder is weaker at very low bitrates — prefer
+  stepping down to 720p over squeezing 1080p below ~5 Mbps.
+- **Wi-Fi:** remote streams are usually limited by internet upload, not
+  Wi-Fi. At home, a 4K stream from a Wi-Fi server to a Wi-Fi TV crosses the
+  air twice; heavy 4K remuxes may stutter. Fixes that need no router
+  settings: an Ethernet cable to a spare router port, or powerline / MoCA
+  adapters. Measure first (speed test on the server PC itself, at busy
+  times, 5 GHz vs 2.4 GHz).
+- Four independent drives, no redundancy: add **SMART drive-health
+  warnings** to the dashboard and back up MartBox's own database/config.
 
 ### Server dashboard (Plex Dash-style, built up across Phases 1–4)
 
@@ -244,7 +340,8 @@ version ships early.
   AMF / VideoToolbox / software).
 - Per-transcode speed (e.g. "1.8× realtime") and fps — below 1× means the
   viewer will buffer; flag it.
-- Disk: free space on library and cache drives, read throughput.
+- Disk: free space on library and cache drives, read throughput, and
+  **SMART health** per drive (warn before a drive fails).
 - Temperatures where the OS exposes them.
 
 **History & stats (v3)**
@@ -255,7 +352,7 @@ version ships early.
 
 **Alerts (v3)**
 - Upload saturated, transcode below realtime, friend stuck on DERP relay,
-  disk nearly full, peer relay offline. Shown in the dashboard and as a
+  disk nearly full or SMART warning, peer relay offline. Shown in the dashboard and as a
   desktop notification.
 
 **How it works**
