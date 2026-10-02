@@ -3,6 +3,7 @@ import { Routes, Route, useLocation } from 'react-router-dom'
 import { PortProvider } from './lib/PortContext'
 import { ProfileProvider } from './lib/ProfileContext'
 import Sidebar from './components/Sidebar'
+import ServerVersionBanner from './components/ServerVersionBanner'
 
 const Home = lazy(() => import('./pages/Home'))
 const Movies = lazy(() => import('./pages/Movies'))
@@ -24,6 +25,7 @@ export default function App(): JSX.Element {
         <div className={isPlayerRoute ? 'app-shell app-shell-immersive' : 'app-shell'}>
           {!isPlayerRoute && <Sidebar />}
           <main className={isPlayerRoute ? 'app-content app-content-full' : 'app-content'}>
+            {!isPlayerRoute && <ServerVersionBanner />}
             <Suspense fallback={<div className="route-loading" />}>
               <Routes>
                 <Route path="/" element={<Home />} />

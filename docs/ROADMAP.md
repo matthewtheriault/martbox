@@ -130,6 +130,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 
 | # | Phase | Clients | Size |
 |---|---|---|---|
+| 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
 | 1 | Remote access v2 (Tailscale speed + peer relay + users/login codes + 4K/HDR direct play, quality ladder, HW transcode + server dashboard) | all | 5–7 wks |
 | 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
 | 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
@@ -149,6 +150,21 @@ real-device and real-network testing time.
 
 Each phase has a "done when" test; checklists also live in the MartBox Plan
 doc.
+
+**Phase 0.5 — In-app updates.** Done when a Windows host and a Mac client
+both pick up a new release by themselves and keep all their data. See
+`RELEASING.md`.
+- electron-updater with GitHub Releases on the public repo; check on launch
+  and every 6 h, download in the background, install on restart (Settings →
+  App Updates or the tray).
+- Database backup when an update finishes downloading and again before it
+  installs; user data stays in the user-data folder.
+- Mac `.zip` target for the updater; notarization when Apple credentials are
+  set; Windows CI attaches `latest.yml` + blockmap to tagged releases.
+- Host `GET /api/version` + `API_VERSION`; client apps show "update the
+  server" / "update this app" on a mismatch.
+- iOS/tvOS update via TestFlight/App Store; Android (Phase 2) gets an
+  in-app "new version" prompt that downloads the APK.
 
 **Phase 1 — Remote access v2.** See `REMOTE_ACCESS_PLAN.md`. Done when a
 friend signs in with a login code, streams 1080p smoothly from outside the

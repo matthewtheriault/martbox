@@ -178,12 +178,23 @@ export interface AppSettings {
   remoteAccessMode: RemoteAccessMode
 }
 
-export interface UpdateCheckResult {
-  updateAvailable: boolean
+export type AppUpdateState =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+
+export interface AppUpdateStatus {
+  state: AppUpdateState
   currentVersion: string
   latestVersion: string | null
-  downloadUrl: string | null
-  notes: string | null
+  releaseNotes: string | null
+  progressPercent: number | null
+  error: string | null
+  checkedAt: string | null
 }
 
 export interface IptvChannel {

@@ -16,6 +16,7 @@
     "build:linux": "npm run build:sidecar && electron-vite build && electron-builder --linux --publish never",
     "build:mac": "npm run build:sidecar && electron-vite build && electron-builder --mac --publish never",
     "build:mas": "npm run build:sidecar && electron-vite build && electron-builder --mac mas --publish never",
+    "release:mac": "bash scripts/release-mac.sh",
     "postinstall": "electron-builder install-app-deps",
     "prepare": "git config core.hooksPath .githooks || true",
     "check:sensitive": "bash scripts/check-sensitive.sh"

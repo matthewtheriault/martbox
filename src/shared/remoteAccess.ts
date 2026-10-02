@@ -6,6 +6,27 @@ export const TSNET_FIXED_PORT = 47823
 // Tailscale client's default) so the two can coexist on one machine.
 export const TSNET_UDP_PORT = 41642
 
+// Bumped whenever the host's HTTP API changes in a way an older client (or
+// an older host) can't handle. Clients compare it against the host's
+// /api/version so a mismatch shows "update the server" / "update this app"
+// instead of half-working screens. App versions can differ freely as long as
+// this matches.
+export const API_VERSION = 1
+
+export interface ServerVersionInfo {
+  appVersion: string
+  apiVersion: number
+}
+
+export interface ServerCompatibility {
+  // null = the host is too old to report a version (pre-0.2).
+  server: ServerVersionInfo | null
+  clientApiVersion: number
+  compatible: boolean
+  // Which side needs updating when they don't match.
+  needsUpdate: 'server' | 'app' | null
+}
+
 export type RemoteAccessMode = 'off' | 'host' | 'client'
 
 // How traffic to a tailnet peer is currently flowing. 'relayed' means it's

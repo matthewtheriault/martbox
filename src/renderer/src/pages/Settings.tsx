@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
+  AppUpdateStatus,
   Library,
   Movie,
   Profile,
   ScanProgress,
-  Show,
-  UpdateCheckResult
+  Show
 } from '../../../shared/types'
 import {
   TSNET_UDP_PORT,
   type PeerConnection,
   type RemoteAccessMode,
   type RemoteAccessStatus,
+  type ServerCompatibility,
   type TailscaleGuestDevice
 } from '../../../shared/remoteAccess'
 import { useProfile } from '../lib/ProfileContext'
@@ -66,11 +67,8 @@ export default function Settings(): JSX.Element {
   const [unmatchedMovies, setUnmatchedMovies] = useState<Movie[]>([])
   const [unmatchedShows, setUnmatchedShows] = useState<Show[]>([])
 
-  const [updateCheckUrlInput, setUpdateCheckUrlInput] = useState('')
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
-  const [updateChecking, setUpdateChecking] = useState(false)
-  const [updateError, setUpdateError] = useState<string | null>(null)
-  const [updateUrlSaved, setUpdateUrlSaved] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null)
+  const [serverCompat, setServerCompat] = useState<ServerCompatibility | null>(null)
 
   const refreshLibraries = (): void => {
     window.api.library.list().then(setLibraries)
@@ -113,13 +111,16 @@ export default function Settings(): JSX.Element {
       if (progress.phase === 'done') refreshLibraries()
     })
     const unsubscribeRemote = window.api.remoteAccess.onStatus(setRemoteStatus)
-    window.api.updates.getCheckUrl().then((url) => {
-      setUpdateCheckUrlInput(url ?? '')
-      if (url) runUpdateCheck()
-    })
+    window.api.updates.getStatus().then(setUpdateStatus)
+    const unsubscribeUpdates = window.api.updates.onStatus(setUpdateStatus)
+    window.api.remoteAccess
+      .serverCompatibility()
+      .then(setServerCompat)
+      .catch(() => setServerCompat(null))
     return () => {
       unsubscribeScan()
       unsubscribeRemote()
+      unsubscribeUpdates()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -242,24 +243,6 @@ export default function Settings(): JSX.Element {
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : 'Failed to generate invite')
     }
-  }
-
-  const runUpdateCheck = async (): Promise<void> => {
-    setUpdateChecking(true)
-    setUpdateError(null)
-    try {
-      setUpdateResult(await window.api.updates.check())
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : 'Failed to check for updates')
-    } finally {
-      setUpdateChecking(false)
-    }
-  }
-
-  const saveUpdateCheckUrl = async (): Promise<void> => {
-    await window.api.updates.setCheckUrl(updateCheckUrlInput.trim())
-    setUpdateUrlSaved(true)
-    runUpdateCheck()
   }
 
   const refreshGuests = async (): Promise<void> => {
@@ -743,53 +726,63 @@ export default function Settings(): JSX.Element {
       <section className="settings-section">
         <h2>App Updates</h2>
         <p className="settings-hint">
-          {updateResult
-            ? `Running version ${updateResult.currentVersion}.`
-            : 'Checks a JSON file you host — {"version": "x.y.z", "url": "https://…", "notes": "…"} — for a newer version. No auto-download or install; it just links you to it.'}
+          MartBox {updateStatus?.currentVersion ?? ''} checks for new versions automatically and
+          downloads them in the background. Installing an update keeps your libraries, profiles,
+          watch history and settings, and the database is backed up first.
         </p>
-        <div className="settings-row">
-          <input
-            type="text"
-            placeholder="Update manifest URL (optional)"
-            value={updateCheckUrlInput}
-            onChange={(e) => {
-              setUpdateCheckUrlInput(e.target.value)
-              setUpdateUrlSaved(false)
-            }}
-          />
-          <button className="btn-primary" onClick={saveUpdateCheckUrl}>
-            Save
-          </button>
-          <button className="btn-secondary" onClick={runUpdateCheck} disabled={updateChecking}>
-            {updateChecking ? 'Checking…' : 'Check for Updates'}
-          </button>
-        </div>
-        {updateUrlSaved && <p className="settings-status-ok">Update URL saved.</p>}
-        {updateError && <p className="settings-status-error">{updateError}</p>}
-        {updateResult && !updateError && (
+        {updateStatus?.state === 'unsupported' ? (
+          <p className="settings-hint">
+            Automatic updates aren&apos;t available in this build (development or Mac App Store).
+          </p>
+        ) : (
           <>
-            {updateResult.updateAvailable ? (
-              <div className="settings-row">
-                <p className="settings-status-ok" style={{ margin: 0 }}>
-                  Update available: v{updateResult.latestVersion}
-                  {updateResult.notes && ` — ${updateResult.notes}`}
-                </p>
+            <div className="settings-row">
+              {updateStatus?.state === 'ready' ? (
+                <button className="btn-primary" onClick={() => window.api.updates.installNow()}>
+                  Restart to install {updateStatus.latestVersion}
+                </button>
+              ) : (
                 <button
-                  className="btn-primary"
-                  onClick={() =>
-                    updateResult.downloadUrl &&
-                    window.api.updates.openDownload(updateResult.downloadUrl)
+                  className="btn-secondary"
+                  onClick={() => window.api.updates.checkNow()}
+                  disabled={
+                    updateStatus?.state === 'checking' || updateStatus?.state === 'downloading'
                   }
                 >
-                  Download
+                  {updateStatus?.state === 'checking' ? 'Checking…' : 'Check for Updates'}
                 </button>
-              </div>
-            ) : (
-              updateResult.latestVersion && (
-                <p className="settings-hint">You&apos;re up to date.</p>
-              )
+              )}
+            </div>
+            {updateStatus?.state === 'up-to-date' && (
+              <p className="settings-hint">You&apos;re up to date.</p>
             )}
+            {updateStatus?.state === 'downloading' && (
+              <p className="settings-hint">
+                Downloading {updateStatus.latestVersion}… {updateStatus.progressPercent ?? 0}%
+              </p>
+            )}
+            {updateStatus?.state === 'ready' && (
+              <p className="settings-status-ok">
+                MartBox {updateStatus.latestVersion} is downloaded and ready to install.
+              </p>
+            )}
+            {updateStatus?.state === 'error' && (
+              <p className="settings-status-error">Update check failed: {updateStatus.error}</p>
+            )}
+            {updateStatus?.releaseNotes &&
+              (updateStatus.state === 'downloading' || updateStatus.state === 'ready') && (
+                <pre className="settings-release-notes">{updateStatus.releaseNotes}</pre>
+              )}
           </>
+        )}
+        {serverCompat && (
+          <p className={serverCompat.compatible ? 'settings-hint' : 'settings-status-error'}>
+            {serverCompat.server
+              ? `Server is running MartBox ${serverCompat.server.appVersion}.`
+              : 'Server is running a MartBox version older than 0.2.'}
+            {serverCompat.needsUpdate === 'server' && ' Update the server to use this app.'}
+            {serverCompat.needsUpdate === 'app' && ' Update this app to match the server.'}
+          </p>
         )}
       </section>
     </div>

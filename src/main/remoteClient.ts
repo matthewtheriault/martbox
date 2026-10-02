@@ -1,4 +1,5 @@
 import { getSidecarLocalPort } from './tsnetSidecar'
+import type { ServerVersionInfo } from '../shared/remoteAccess'
 import type {
   ActivityItem,
   ContinueWatchingItem,
@@ -32,6 +33,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+}
+
+// Hosts older than 0.2 have no /api/version and answer 404 — reported as
+// null so the caller can say "update the server" rather than "can't connect".
+export async function getServerVersion(): Promise<ServerVersionInfo | null> {
+  const res = await fetch(`${baseUrl()}/api/version`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`Host request failed: /api/version (${res.status})`)
+  return (await res.json()) as ServerVersionInfo
 }
 
 export function listProfiles(): Promise<Profile[]> {

@@ -58,9 +58,10 @@ export default function Sidebar(): JSX.Element {
 
   useEffect(() => {
     window.api.updates
-      .check()
-      .then((result) => setUpdateAvailable(result.updateAvailable))
+      .getStatus()
+      .then((status) => setUpdateAvailable(status.state === 'ready'))
       .catch(() => {})
+    return window.api.updates.onStatus((status) => setUpdateAvailable(status.state === 'ready'))
   }, [])
 
   return (
@@ -108,7 +109,7 @@ export default function Sidebar(): JSX.Element {
       <NavLink to="/settings" className="sidebar-link sidebar-link-settings">
         <Icon name="settings" />
         <span>Settings</span>
-        {updateAvailable && <span className="sidebar-update-dot" title="Update available" />}
+        {updateAvailable && <span className="sidebar-update-dot" title="Update ready — restart to install" />}
       </NavLink>
     </aside>
   )
