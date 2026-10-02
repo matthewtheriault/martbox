@@ -1,5 +1,6 @@
 import { getSidecarLocalPort } from './tsnetSidecar'
-import type { ServerVersionInfo } from '../shared/remoteAccess'
+import { authHeaders, clearDeviceKey } from './clientSession'
+import type { RemoteSession, ServerVersionInfo } from '../shared/remoteAccess'
 import type {
   ActivityItem,
   ContinueWatchingItem,
@@ -26,7 +27,22 @@ function baseUrl(): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${baseUrl()}${path}`, init)
+  const res = await fetch(`${baseUrl()}${path}`, {
+    ...init,
+    headers: { ...(init?.headers as Record<string, string> | undefined), ...authHeaders() }
+  })
+  if (res.status === 401) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    if (body.error === 'signed-out') {
+      clearDeviceKey()
+      throw new Error(
+        'This device was signed out by the server owner. Enter a new login code in Settings → Remote Access.'
+      )
+    }
+    throw new Error(
+      'This server requires a login. Enter a login code from the server owner in Settings → Remote Access.'
+    )
+  }
   if (!res.ok) throw new Error(`Host request failed: ${path} (${res.status})`)
   return (await res.json()) as T
 }
@@ -42,6 +58,16 @@ export async function getServerVersion(): Promise<ServerVersionInfo | null> {
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Host request failed: /api/version (${res.status})`)
   return (await res.json()) as ServerVersionInfo
+}
+
+// Who this device is signed in as on the host (null profile = not signed
+// in). Hosts older than 0.3 have no /api/auth/me.
+export async function getSession(): Promise<RemoteSession | null> {
+  try {
+    return await request<RemoteSession>('/api/auth/me')
+  } catch {
+    return null
+  }
 }
 
 export function listProfiles(): Promise<Profile[]> {

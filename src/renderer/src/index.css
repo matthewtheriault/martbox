@@ -1520,6 +1520,42 @@ button {
   margin: 0 0 0.8rem;
 }
 
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+
+.login-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.4rem;
+  user-select: all;
+}
+
+.login-qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 0.4rem 0 1rem;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.user-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
 .settings-row {
   display: flex;
   gap: 0.7rem;

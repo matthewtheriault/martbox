@@ -1,8 +1,10 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from 'electron'
+import './devUserData'
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { registerIpcHandlers } from './ipc'
-import { startMediaServer, getMediaServerPort } from './mediaServer'
-import { startSidecar, stopSidecar } from './tsnetSidecar'
+import { startMediaServer, getMediaServerRemotePort } from './mediaServer'
+import { startSidecar, stopSidecar, getSidecarLocalPort } from './tsnetSidecar'
+import { authHeaders, handleClientStatus } from './clientSession'
 import { getSetting } from './db'
 import { logError } from './errorLog'
 import { sweepOrphanedImages } from './imageCache'
@@ -141,11 +143,37 @@ async function createWindow(): Promise<void> {
     tray?.setToolTip(`MartBox — ${status.status}`)
   }
   if (remoteAccessMode === 'host') {
-    startSidecar({ mode: 'host', forwardTo: `127.0.0.1:${getMediaServerPort()}`, onStatus })
+    startSidecar({ mode: 'host', forwardTo: `127.0.0.1:${getMediaServerRemotePort()}`, onStatus })
   } else if (remoteAccessMode === 'client') {
     const hostAddr = getSetting('remoteAccessHostAddr')
-    if (hostAddr) startSidecar({ mode: 'client', hostAddr, onStatus })
+    if (hostAddr) {
+      startSidecar({
+        mode: 'client',
+        hostAddr,
+        onStatus: (status) => {
+          onStatus(status)
+          handleClientStatus(status).then((error) => {
+            if (error) onStatus({ status: 'error', message: error })
+          })
+        }
+      })
+    }
   }
+
+  // <video> and <img> requests to the host can't carry custom headers, so
+  // in client mode the device key is added here for anything sent to the
+  // sidecar's local port — the same key remoteClient.ts sends on API calls.
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['http://127.0.0.1/*'] },
+    (details, callback) => {
+      const port = getSidecarLocalPort()
+      if (port && getSetting('remoteAccessMode') === 'client' && new URL(details.url).port === String(port)) {
+        callback({ requestHeaders: { ...details.requestHeaders, ...authHeaders() } })
+        return
+      }
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
 
   if (process.env.ELECTRON_RENDERER_URL) {
     await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)

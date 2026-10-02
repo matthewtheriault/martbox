@@ -3,16 +3,19 @@ import { useNavigate } from 'react-router-dom'
 import type {
   AppUpdateStatus,
   Library,
+  LoginCodeResult,
   Movie,
   Profile,
   ScanProgress,
-  Show
+  Show,
+  UserDevice
 } from '../../../shared/types'
 import {
   TSNET_UDP_PORT,
   type PeerConnection,
   type RemoteAccessMode,
   type RemoteAccessStatus,
+  type RemoteSession,
   type ServerCompatibility,
   type TailscaleGuestDevice
 } from '../../../shared/remoteAccess'
@@ -55,8 +58,14 @@ export default function Settings(): JSX.Element {
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'saving' | 'valid' | 'invalid'>('idle')
   const [hostError, setHostError] = useState<string | null>(null)
   const [enablingHost, setEnablingHost] = useState(false)
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
-  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [devices, setDevices] = useState<UserDevice[]>([])
+  const [loginCode, setLoginCode] = useState<{ profileId: number; result: LoginCodeResult } | null>(
+    null
+  )
+  const [creatingCodeFor, setCreatingCodeFor] = useState<number | null>(null)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [requireLogin, setRequireLogin] = useState(false)
+  const [session, setSession] = useState<RemoteSession | null>(null)
   const [connectCodeInput, setConnectCodeInput] = useState('')
   const [connectError, setConnectError] = useState<string | null>(null)
   const [guests, setGuests] = useState<TailscaleGuestDevice[] | null>(null)
@@ -82,8 +91,21 @@ export default function Settings(): JSX.Element {
     })
   }
 
+  // Users (login codes, devices, disabling) are managed by the admin on the
+  // server itself — a friend's app in client mode just picks a profile.
+  const manageUsers = remoteMode !== 'client' && activeProfile.isAdmin
+
+  const refreshDevices = (): void => {
+    if (!manageUsers) return
+    window.api.users
+      .listDevices(activeProfile.id)
+      .then(setDevices)
+      .catch(() => setDevices([]))
+  }
+
   const refreshProfiles = (): void => {
     window.api.profiles.list().then(setProfiles)
+    refreshDevices()
   }
 
   const refreshAllPins = (): void => {
@@ -93,6 +115,20 @@ export default function Settings(): JSX.Element {
 
   useEffect(() => {
     if (remoteMode === 'host' && remoteStatus.status === 'connected') refreshGuests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteMode, remoteStatus.status])
+
+  useEffect(() => {
+    refreshDevices()
+    if (remoteMode !== 'client') {
+      window.api.remoteAccess.getRequireLogin().then(setRequireLogin)
+      setSession(null)
+    } else if (remoteStatus.status === 'connected') {
+      window.api.remoteAccess
+        .session()
+        .then(setSession)
+        .catch(() => setSession(null))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteMode, remoteStatus.status])
 
@@ -235,14 +271,43 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const generateInvite = async (): Promise<void> => {
-    setInviteError(null)
+  const createLoginCode = async (profileId: number): Promise<void> => {
+    setUsersError(null)
+    setCreatingCodeFor(profileId)
     try {
-      const code = await window.api.remoteAccess.generateInvite()
-      setInviteCode(code)
+      const result = await window.api.users.createLoginCode(activeProfile.id, profileId)
+      setLoginCode({ profileId, result })
     } catch (err) {
-      setInviteError(err instanceof Error ? err.message : 'Failed to generate invite')
+      setUsersError(err instanceof Error ? err.message : 'Failed to create a login code')
+    } finally {
+      setCreatingCodeFor(null)
     }
+  }
+
+  const signOutDevice = async (deviceId: number): Promise<void> => {
+    setUsersError(null)
+    try {
+      await window.api.users.revokeDevice(activeProfile.id, deviceId)
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to sign the device out')
+    }
+    refreshDevices()
+  }
+
+  const toggleUserDisabled = async (profile: Profile): Promise<void> => {
+    setUsersError(null)
+    try {
+      await window.api.users.setDisabled(activeProfile.id, profile.id, !profile.disabled)
+      if (loginCode?.profileId === profile.id) setLoginCode(null)
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to update the user')
+    }
+    refreshProfiles()
+  }
+
+  const toggleRequireLogin = async (required: boolean): Promise<void> => {
+    await window.api.remoteAccess.setRequireLogin(activeProfile.id, required)
+    setRequireLogin(required)
   }
 
   const refreshGuests = async (): Promise<void> => {
@@ -271,6 +336,11 @@ export default function Settings(): JSX.Element {
     try {
       await window.api.remoteAccess.connectClient(connectCodeInput.trim())
       setRemoteMode('client')
+      setConnectCodeInput('')
+      window.api.remoteAccess
+        .session()
+        .then(setSession)
+        .catch(() => setSession(null))
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : 'That invite code did not work')
     }
@@ -281,7 +351,7 @@ export default function Settings(): JSX.Element {
       await window.api.remoteAccess.disable()
     } finally {
       setRemoteMode('off')
-      setInviteCode(null)
+      setLoginCode(null)
       setConnectCodeInput('')
     }
   }
@@ -296,7 +366,7 @@ export default function Settings(): JSX.Element {
       <h1 className="page-title">Settings</h1>
 
       <section className="settings-section">
-        <h2>Profiles</h2>
+        <h2>{remoteMode === 'client' ? 'Profiles' : 'Users'}</h2>
         {activeProfile.isAdmin ? (
           <p className="settings-status-ok">
             You are signed in as {activeProfile.name}, the admin account.
@@ -307,16 +377,23 @@ export default function Settings(): JSX.Element {
         <div className="settings-row">
           <input
             type="text"
-            placeholder="New profile name"
+            placeholder={remoteMode === 'client' ? 'New profile name' : 'New user name'}
             value={newProfileName}
             onChange={(e) => setNewProfileName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addProfile()}
           />
           <button className="btn-primary" onClick={addProfile}>
-            Add Profile
+            {remoteMode === 'client' ? 'Add Profile' : 'Add User'}
           </button>
         </div>
 
+        {manageUsers && (
+          <p className="settings-hint">
+            To let someone in, click Login Code next to their name and send them the invite. Each
+            device they sign in shows up under their name, where you can sign it out.
+          </p>
+        )}
+        {usersError && <p className="settings-status-error">{usersError}</p>}
         <ul className="library-list">
           {profiles.map((profile) => (
             <li key={profile.id} className="library-item">
@@ -333,12 +410,45 @@ export default function Settings(): JSX.Element {
                 <div className="library-name">
                   {profile.name}
                   {profile.isAdmin && <span className="profile-admin-badge">Admin</span>}
+                  {profile.disabled && <span className="library-type">(disabled)</span>}
                   {profile.id === activeProfile.id && (
                     <span className="library-type">(current)</span>
                   )}
+                  {manageUsers &&
+                    devices
+                      .filter((d) => d.profileId === profile.id)
+                      .map((device) => (
+                        <div key={device.id} className="user-device">
+                          <span>
+                            {device.name}
+                            <span className="library-type">
+                              {device.lastSeenAt
+                                ? `Last seen ${new Date(`${device.lastSeenAt}Z`).toLocaleString()}`
+                                : 'Never seen'}
+                            </span>
+                          </span>
+                          <button className="btn-secondary" onClick={() => signOutDevice(device.id)}>
+                            Sign Out
+                          </button>
+                        </div>
+                      ))}
                 </div>
               )}
               <div className="library-actions">
+                {manageUsers && !profile.disabled && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => createLoginCode(profile.id)}
+                    disabled={creatingCodeFor === profile.id}
+                  >
+                    {creatingCodeFor === profile.id ? 'Creating…' : 'Login Code'}
+                  </button>
+                )}
+                {manageUsers && !profile.isAdmin && (
+                  <button className="btn-secondary" onClick={() => toggleUserDisabled(profile)}>
+                    {profile.disabled ? 'Enable' : 'Disable'}
+                  </button>
+                )}
                 <button className="btn-secondary" onClick={() => startRename(profile)}>
                   Rename
                 </button>
@@ -349,6 +459,63 @@ export default function Settings(): JSX.Element {
             </li>
           ))}
         </ul>
+
+        {loginCode && (
+          <div className="settings-subsection">
+            <h3>
+              Login code for {profiles.find((p) => p.id === loginCode.profileId)?.name ?? 'user'}
+            </h3>
+            <p className="login-code">{loginCode.result.loginCode}</p>
+            <p className="settings-hint">
+              Works once, until {new Date(loginCode.result.expiresAt).toLocaleString()}.
+            </p>
+            {loginCode.result.invite ? (
+              <>
+                <p className="settings-hint">
+                  For a new device, send the full invite instead — it connects to this server and
+                  signs in as this user in one step. On a phone, scan the QR code.
+                </p>
+                <div className="settings-row">
+                  <input
+                    type="text"
+                    readOnly
+                    value={loginCode.result.invite}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button
+                    className="btn-secondary"
+                    onClick={() => navigator.clipboard.writeText(loginCode.result.invite ?? '')}
+                  >
+                    Copy Invite
+                  </button>
+                </div>
+                {loginCode.result.inviteQrDataUrl && (
+                  <img
+                    className="login-qr"
+                    src={loginCode.result.inviteQrDataUrl}
+                    alt="Invite QR code"
+                  />
+                )}
+              </>
+            ) : (
+              <p className="settings-hint">
+                The code alone signs in a device that&apos;s already connected to this server. To
+                invite a brand-new device, set Remote Access to Host this server first.
+              </p>
+            )}
+            <div className="settings-row">
+              <button
+                className="btn-secondary"
+                onClick={() => navigator.clipboard.writeText(loginCode.result.loginCode)}
+              >
+                Copy Code
+              </button>
+              <button className="btn-secondary" onClick={() => setLoginCode(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="settings-section">
@@ -498,24 +665,26 @@ export default function Settings(): JSX.Element {
                 )}
                 {hostError && <p className="settings-status-error">{hostError}</p>}
                 {remoteStatus.status === 'connected' && (
-                  <div className="settings-row">
-                    <button className="btn-primary" onClick={generateInvite}>
-                      Generate Invite
-                    </button>
+                  <div className="settings-subsection">
+                    <h3>Logins</h3>
+                    <p className="settings-hint">
+                      To invite someone, click Login Code next to their name under Users.
+                    </p>
+                    <label className="settings-toggle">
+                      <input
+                        type="checkbox"
+                        checked={requireLogin}
+                        onChange={(e) => toggleRequireLogin(e.target.checked)}
+                      />
+                      Require a login for remote devices
+                    </label>
+                    <p className="settings-hint">
+                      {requireLogin
+                        ? 'Every remote device must sign in with a login code. Apps from before MartBox 0.3 can no longer connect.'
+                        : 'Older apps can still connect without signing in. Turn this on once everyone has signed in with a login code.'}
+                    </p>
                   </div>
                 )}
-                {inviteCode && (
-                  <div className="settings-row">
-                    <input type="text" readOnly value={inviteCode} onFocus={(e) => e.target.select()} />
-                    <button
-                      className="btn-secondary"
-                      onClick={() => navigator.clipboard.writeText(inviteCode)}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                )}
-                {inviteError && <p className="settings-status-error">{inviteError}</p>}
                 {remoteStatus.status === 'connected' && (
                   <div className="settings-subsection">
                     <h3>Connected Friends</h3>
@@ -573,7 +742,7 @@ export default function Settings(): JSX.Element {
             <div className="settings-row">
               <input
                 type="text"
-                placeholder="Paste invite code"
+                placeholder="Paste an invite or login code"
                 value={connectCodeInput}
                 onChange={(e) => setConnectCodeInput(e.target.value)}
               />
@@ -593,6 +762,15 @@ export default function Settings(): JSX.Element {
                 Your connection to this server is going through Tailscale&apos;s relay servers,
                 which limits streaming speed. The server owner can fix this by enabling UPnP on
                 their router or forwarding UDP port {TSNET_UDP_PORT}.
+              </p>
+            )}
+            {session && (
+              <p className={session.profile ? 'settings-status-ok' : 'settings-hint'}>
+                {session.profile
+                  ? `Signed in as ${session.profile.name}.`
+                  : session.loginRequired
+                    ? 'Not signed in. This server requires a login code from its owner.'
+                    : 'Not signed in. Paste a login code from the server owner to sign in.'}
               </p>
             )}
             {connectError && <p className="settings-status-error">{connectError}</p>}
