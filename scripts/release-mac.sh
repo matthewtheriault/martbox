@@ -40,17 +40,35 @@ for f in release/MartBox-* release/latest-mac.yml release/latest.yml; do
 done
 rm -f release/latest-mac.yml release/MartBox-"$VERSION"[.-]*
 
-# A dmg build that fails mid-way (e.g. hdiutil "Resource temporarily
-# unavailable") leaves its temporary image mounted, which then makes the next
-# build fail the same way. Detach any of electron-builder's leftovers first.
-hdiutil info | awk '
-  /^image-path/ { img = ($3 ~ /\/T\/t-[^\/]+\/[0-9]+\.dmg$/) }
-  img && /^\/dev\/disk[0-9]+[ \t]/ { print $1; img = 0 }
-' | while read -r dev; do
-  hdiutil detach "$dev" -force >/dev/null 2>&1 || true
-done
+# hdiutil sometimes fails resizing a dmg ("Resource temporarily
+# unavailable", exit 35) — and the failed build leaves its temporary image
+# mounted, so the next attempt fails the same way. Clear electron-builder's
+# leftovers and retry the packaging step (code and sidecar are built once).
+detach_stale_images() {
+  hdiutil info | awk '
+    /^image-path/ { img = ($3 ~ /\/T\/t-[^\/]+\/[0-9]+\.dmg$/) }
+    img && /^\/dev\/disk[0-9]+[ \t]/ { print $1; img = 0 }
+  ' | while read -r dev; do
+    hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+  done
+}
 
-npm run build:mac
+npm run build:sidecar
+npx electron-vite build
+for attempt in 1 2 3; do
+  detach_stale_images
+  rm -f release/latest-mac.yml release/MartBox-"$VERSION"[.-]*
+  if npx electron-builder --mac --publish never; then
+    break
+  fi
+  if [[ $attempt == 3 ]]; then
+    echo "error: Mac packaging failed 3 times." >&2
+    exit 1
+  fi
+  echo "Mac packaging failed (attempt $attempt) — retrying." >&2
+  sleep 5
+done
+detach_stale_images
 
 FILES=(
   release/latest-mac.yml
