@@ -130,7 +130,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 
 | # | Phase | Clients | Size |
 |---|---|---|---|
-| 1 | Remote access v2 (Tailscale speed + peer relay + users/login codes/per-user history + ABR + HW transcode + server dashboard) | all | 5–7 wks |
+| 1 | Remote access v2 (Tailscale speed + peer relay + users/login codes + 4K/HDR direct play, quality ladder, HW transcode + server dashboard) | all | 5–7 wks |
 | 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
 | 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
 | 4 | Retro games | all | 8–12 wks |
