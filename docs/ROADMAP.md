@@ -12,8 +12,10 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
    compatible — use bsnes or another GPL-compatible SNES core instead).
 2. **Launch consoles:** GB/GBC/GBA, NES, SNES, N64, NDS, PS1. Later:
    GameCube (Android + desktop only). PS2 skipped for now.
-3. **Remote access:** make the host directly reachable first (UPnP / port
-   forward, free). Oracle Always Free relay only if the host is behind CGNAT.
+3. **Remote access: Tailscale is the main path** — no router changes, nothing
+   public. Speed via direct connections, our own Tailscale peer relay on a
+   free Oracle VM if friends are relayed, and hardware transcoding. Public
+   HTTPS is an optional later add-on for other hosts.
 4. **Users: Jellyfin/Emby model.** No public sign-up and no central account
    service. The host admin creates each user, which generates a one-time
    login code/QR; the friend signs in with it and the device keeps its own
@@ -50,19 +52,22 @@ The Apple Developer Program fee is the only unavoidable cost.
 
 ## Free remote access strategy
 
-Only the **host** must be reachable — clients always dial out, so friends on
-cellular/CGNAT/hotel Wi-Fi are fine once the host is.
+**Tailscale is the main path** — no router changes on the host (it shares a
+family router), nothing exposed to the open internet. Details in
+`REMOTE_ACCESS_PLAN.md`.
 
-1. **Host reachability (free):** UPnP/NAT-PMP auto port mapping from the app
-   (fixed tsnet UDP port + HTTPS TCP port), manual-forward fallback with clear
-   instructions in Settings. Makes Tailscale go direct instead of DERP.
-2. **Tailscale free Personal plan** stays the transport short-term (existing
-   sidecar, gomobile bridges, invite codes). Friend devices join as tagged
-   devices. (Verify current free-plan limits before relying on this.)
-3. **If host is behind CGNAT, or to drop the dependency on Tailscale Inc.:**
-   Oracle Cloud Always Free VM running **Headscale** (self-hosted control
+1. **Tailscale free Personal plan** is the transport (existing sidecar,
+   gomobile bridges, invite codes). Friend devices join as tagged devices,
+   locked down by access rules. Tailscale hole-punches directly in most
+   cases, with no port forwarding.
+2. **Our own peer relay when needed:** if friends end up relayed, a
+   Tailscale **peer relay** (free on the Personal plan) on an Oracle Cloud
+   Always Free VM replaces the slow shared DERP relays. The VM's port is
+   opened in Oracle's cloud firewall, not on the home router.
+3. **To drop the dependency on Tailscale Inc. (later, optional):**
+   the same Oracle VM could run **Headscale** (self-hosted control
    server; tsnet supports a custom `ControlURL`) + a **self-hosted DERP
-   relay**. $0, but with strings:
+   relay**. Oracle Always Free is $0, but with strings:
    - Card required at signup; 10 TB/mo outbound free.
    - Idle reclaim: free instances can be stopped if, over 7 days, 95th-pct
      CPU, network, and (A1) memory are all under 20% — a mostly-idle relay
@@ -76,9 +81,11 @@ cellular/CGNAT/hotel Wi-Fi are fine once the host is.
    probing) so slow paths degrade quality instead of buffering. Host upload
    bandwidth is the hard ceiling.
 5. **Seamless UX:** admin-created users sign in with a one-time login code /
-   QR from host Settings → Users (per-device keys in Keychain/Keystore), clients race LAN → direct →
-   relayed paths automatically, auto-reconnect, one plain-English status line
-   in host Settings.
+   QR from host Settings → Users (per-device keys in Keychain/Keystore),
+   friends never see Tailscale, instant reconnect, one plain-English status
+   line in host Settings.
+6. **Public HTTPS (optional later):** Plex-style direct HTTPS for other
+   hosts who can open a router port. Not planned for our host.
 
 ## Retro games approach
 
@@ -123,7 +130,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 
 | # | Phase | Clients | Size |
 |---|---|---|---|
-| 1 | Remote access v2 (free path above + users/login codes/per-user history + ABR + HW transcode) | all | 5–7 wks |
+| 1 | Remote access v2 (Tailscale speed + peer relay + users/login codes/per-user history + ABR + HW transcode) | all | 4–6 wks |
 | 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
 | 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
 | 4 | Retro games | all | 8–12 wks |
@@ -165,7 +172,8 @@ Note: screens built in Phases 2–7 will be restyled here. Agreeing the design
 tokens before Phase 2 would reduce that rework (optional).
 
 ## Open questions
-- Is the host behind CGNAT? (Decides whether Oracle-free relay is required.)
+- Are friends connecting directly or relayed? (Decides whether the Oracle
+  peer relay is needed.)
 - Host upload bandwidth (caps simultaneous remote streams/bitrate).
 - Optional later: a native SwiftUI Mac *client* sharing iOS code (the host
   server stays Electron).
