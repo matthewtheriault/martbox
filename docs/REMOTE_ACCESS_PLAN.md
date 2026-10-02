@@ -158,6 +158,8 @@ of buffering.
   public port that always enforces auth.
 
 ### Phase 2 — Public HTTPS endpoint
+- **Gate:** only after Phase 1 passes a security review (see Security).
+  Off by default; random DDNS hostname.
 - Fixed public port (e.g. 47824), served over HTTPS only.
 - UPnP/NAT-PMP mapping with renewal; clear UI when it fails ("forward TCP
   47824 to this PC manually").
@@ -194,6 +196,52 @@ of buffering.
   720p 3 Mbps / 480p 1.5 Mbps); default remote clients to a level that fits
   the host's upload bandwidth. Longer term: move VOD transcodes to HLS with
   multiple renditions so players can adapt automatically.
+
+## Security
+
+Public HTTPS puts a server on the open internet, which Tailscale-only never
+did. Goal: on par with Jellyfin/Emby done properly.
+
+**Hard rules**
+- **Phase 2 never ships before Phase 1 is complete and reviewed.** Run a
+  full security review (`/security-review` + manual pass) before the public
+  listener is enabled in any release.
+- Remote access is **off by default**; the host opts in.
+- The public listener serves only authenticated media/API routes — no admin
+  or settings endpoints, ever.
+
+**What's exposed (and what isn't)**
+- Not a VPN, so no VPN-style DNS leaks: MartBox never routes anyone's
+  general traffic.
+- The host's home IP is public via the DDNS hostname (city-level location).
+  Friends see it anyway on direct paths.
+- Every Let's Encrypt cert is published in Certificate Transparency logs;
+  bots scan new hostnames within minutes. Assume the server will be found.
+  Use a **random hostname** (e.g. `mb-7f3k9q.duckdns.org`), never one with
+  the host's name.
+- Friends' DNS resolvers/ISPs see which hostname they connect to and how
+  much data moves — not what's being watched (TLS).
+
+**Risks and mitigations**
+
+| Risk | Mitigation |
+|---|---|
+| Bugs in our new auth code (biggest risk) | Auth middleware on every route by default (allow-list, not deny-list); tests for every route unauthenticated; security review before release |
+| Brute-forcing login codes | ≥ 60 bits of randomness, one-time, 24–48 h expiry, per-IP rate limit + temporary lockout, constant-time comparison |
+| Stolen device keys | Hashed at rest on host; Keychain / Keystore / `safeStorage` on clients; HTTPS only; per-device revoke in Settings |
+| Signed media URLs leaking (logs, history) | Short expiry, bound to user + item, never logged; strip query strings from request logs |
+| DuckDNS token theft — attacker repoints the hostname *and* gets a valid cert via DNS-01 | Store the token encrypted (`safeStorage`); clients **pin the server's public key** received at pairing and reject a different server even with a valid cert; key rotation pushes the new pin over the old trusted connection |
+| Plain HTTP on the LAN path (shared Wi-Fi, dorms) | HTTPS on LAN too, verified against the pinned key |
+| Malicious media files exploiting ffmpeg | Keep jellyfin-ffmpeg current; run as the normal user, never elevated; only library files are processed |
+| UPnP | Map only our one port; remove the mapping on quit; manual forward stays an option for hosts who disable UPnP |
+| Tailscale friends reaching the host's other devices | Tailscale ACLs: friend devices (tagged) may reach **only** the MartBox port on the host node; auth keys one-time, short-lived, preauthorized-tagged. **Verify the current tailnet ACLs now** — today the media server has no auth and relies on tailnet isolation |
+| Outdated dependencies | `npm audit` / Dependabot in CI; signed app updates |
+| Electron renderer compromise | Keep renderer sandbox + context isolation; no remote content in privileged windows |
+| Secrets in the repo | `npm run check:sensitive` pre-commit hook and CI job |
+
+**Not in scope:** hiding the host's IP from friends who connect directly
+(use Tailscale-only mode if that matters), and protecting against a
+compromised host machine.
 
 ## If the host is behind CGNAT
 
