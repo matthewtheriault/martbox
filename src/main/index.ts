@@ -6,6 +6,7 @@ import { startSidecar, stopSidecar } from './tsnetSidecar'
 import { getSetting } from './db'
 import { logError } from './errorLog'
 import { sweepOrphanedImages } from './imageCache'
+import { getUpdateStatus, initAutoUpdates, installUpdateNow, onUpdateStatus } from './autoUpdate'
 import type { RemoteAccessStatus } from '../shared/remoteAccess'
 import './db'
 
@@ -45,28 +46,45 @@ function resolveIconPath(): string {
     : join(app.getAppPath(), 'build', 'icon.png')
 }
 
+// A host usually lives in the tray for weeks, so a downloaded update also
+// gets a tray item — the Settings page isn't the only way to install it.
+function buildTrayMenu(): Menu {
+  const update = getUpdateStatus()
+  return Menu.buildFromTemplate([
+    {
+      label: 'Open MartBox',
+      click: () => {
+        mainWindow?.show()
+      }
+    },
+    ...(update.state === 'ready'
+      ? [
+          { type: 'separator' as const },
+          {
+            label: `Restart to install MartBox ${update.latestVersion}`,
+            click: () => {
+              installUpdateNow()
+            }
+          }
+        ]
+      : []),
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit()
+      }
+    }
+  ])
+}
+
 function createTray(): void {
   const icon = nativeImage.createFromPath(resolveIconPath()).resize({ width: 16, height: 16 })
   tray = new Tray(icon)
   tray.setToolTip('MartBox')
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Open MartBox',
-        click: () => {
-          mainWindow?.show()
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Quit',
-        click: () => {
-          app.quit()
-        }
-      }
-    ])
-  )
+  tray.setContextMenu(buildTrayMenu())
   tray.on('click', () => mainWindow?.show())
+  onUpdateStatus(() => tray?.setContextMenu(buildTrayMenu()))
 }
 
 async function createWindow(): Promise<void> {
@@ -162,6 +180,7 @@ async function loadPackagedRendererWithRetry(win: BrowserWindow, maxAttempts = 5
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  initAutoUpdates()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

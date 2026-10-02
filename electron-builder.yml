@@ -14,12 +14,24 @@ extraResources:
   - from: build/icon.png
     to: icon.png
 afterPack: scripts/afterPackSidecar.js
+# In-app updates (src/main/autoUpdate.ts) read latest.yml / latest-mac.yml
+# from GitHub Releases on the public repo — no token needed to download.
+# Builds still run with --publish never; docs/RELEASING.md covers how the
+# release gets its files.
+publish:
+  provider: github
+  owner: matthewtheriault
+  repo: martbox
+  releaseType: release
 win:
   target:
     - target: nsis
       arch:
         - x64
 nsis:
+  # No spaces: GitHub renames uploaded files with spaces, which would break
+  # the path latest.yml points the updater at.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
@@ -27,6 +39,11 @@ nsis:
 mac:
   target:
     - target: dmg
+      arch:
+        - arm64
+        - x64
+    # electron-updater installs Mac updates from the zip, not the dmg.
+    - target: zip
       arch:
         - arm64
         - x64

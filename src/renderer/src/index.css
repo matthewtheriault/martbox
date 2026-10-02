@@ -374,6 +374,15 @@ button {
   position: relative;
 }
 
+.server-version-banner {
+  margin: 1rem 1.5rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 .route-loading {
   width: 100%;
   height: 100%;
@@ -1487,6 +1496,16 @@ button {
 .settings-hint {
   color: var(--text-dim);
   font-size: 0.88rem;
+  margin: 0 0 1rem;
+}
+
+.settings-release-notes {
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  max-height: 12rem;
+  overflow-y: auto;
   margin: 0 0 1rem;
 }
 

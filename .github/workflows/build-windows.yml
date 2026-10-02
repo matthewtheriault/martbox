@@ -45,10 +45,15 @@ jobs:
           name: martbox-windows-installer
           path: release/*.exe
 
-      - name: Attach installer to release
+      # latest.yml + the blockmap are what the in-app updater reads; without
+      # them Windows installs never see the release.
+      - name: Attach installer and update files to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.exe
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

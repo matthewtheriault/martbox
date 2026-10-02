@@ -29,7 +29,12 @@ import {
   revokeGuestDevice
 } from './tailscaleApi'
 import { scanAndMatchLibrary } from './library'
-import { checkForUpdate, getUpdateCheckUrl, setUpdateCheckUrl } from './updateCheck'
+import {
+  checkForUpdatesNow,
+  getUpdateStatus,
+  installUpdateNow,
+  onUpdateStatus
+} from './autoUpdate'
 import { verifyChannels, isHealthCheckRunning } from './iptvHealth'
 import { refreshIptv } from './iptv'
 import { getMediaServerPort } from './mediaServer'
@@ -40,10 +45,12 @@ import {
   getSidecarLocalPort
 } from './tsnetSidecar'
 import {
+  API_VERSION,
   TSNET_FIXED_PORT,
   type InviteCode,
   type RemoteAccessMode,
-  type RemoteAccessStatus
+  type RemoteAccessStatus,
+  type ServerCompatibility
 } from '../shared/remoteAccess'
 import type {
   MediaType,
@@ -392,16 +399,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     shell.openExternal(url)
   })
 
-  // --- Update check (no publish infra yet, so this just compares against
-  // a JSON manifest the user points at; the actual download opens in the
-  // default browser rather than downloading/installing in-app) ---
+  // --- In-app updates (electron-updater + GitHub Releases, autoUpdate.ts) ---
 
-  ipcMain.handle('updates:check', () => checkForUpdate())
-  ipcMain.handle('updates:getCheckUrl', () => getUpdateCheckUrl())
-  ipcMain.handle('updates:setCheckUrl', (_e, url: string) => setUpdateCheckUrl(url))
-  ipcMain.handle('updates:openDownload', (_e, url: string) => {
-    if (!/^https?:\/\//i.test(url)) return
-    shell.openExternal(url)
+  ipcMain.handle('updates:getStatus', () => getUpdateStatus())
+  ipcMain.handle('updates:checkNow', () => checkForUpdatesNow())
+  ipcMain.handle('updates:installNow', () => installUpdateNow())
+  onUpdateStatus((status) => mainWindow.webContents.send('updates:status', status))
+
+  // --- Server/app compatibility (client mode only) ---
+
+  ipcMain.handle('remoteAccess:serverCompatibility', async (): Promise<ServerCompatibility | null> => {
+    if (getSetting('remoteAccessMode') !== 'client') return null
+    const server = await remoteClient.getServerVersion()
+    const serverApi = server?.apiVersion ?? 0
+    return {
+      server,
+      clientApiVersion: API_VERSION,
+      compatible: serverApi === API_VERSION,
+      needsUpdate: serverApi < API_VERSION ? 'server' : serverApi > API_VERSION ? 'app' : null
+    }
   })
 
   // --- Remote access (Phase 2: Tailscale tsnet) ---

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActivityItem,
   AppSettings,
+  AppUpdateStatus,
   ContinueWatchingItem,
   Episode,
   IptvChannel,
@@ -19,12 +20,15 @@ import type {
   Show,
   ShowMetadataPatch,
   ShowSearchResult,
-  UpdateCheckResult,
   WatchlistItem,
   WatchlistMediaType,
   WatchProgress
 } from '../shared/types'
-import type { RemoteAccessStatus, TailscaleGuestDevice } from '../shared/remoteAccess'
+import type {
+  RemoteAccessStatus,
+  ServerCompatibility,
+  TailscaleGuestDevice
+} from '../shared/remoteAccess'
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args)
@@ -163,13 +167,21 @@ const api = {
     openExternal: (url: string) => invoke<void>('system:openExternal', url)
   },
   updates: {
-    check: () => invoke<UpdateCheckResult>('updates:check'),
-    getCheckUrl: () => invoke<string | null>('updates:getCheckUrl'),
-    setCheckUrl: (url: string) => invoke<void>('updates:setCheckUrl', url),
-    openDownload: (url: string) => invoke<void>('updates:openDownload', url)
+    getStatus: () => invoke<AppUpdateStatus>('updates:getStatus'),
+    checkNow: () => invoke<void>('updates:checkNow'),
+    installNow: () => invoke<void>('updates:installNow'),
+    onStatus: (cb: (status: AppUpdateStatus) => void) => {
+      const listener = (_e: unknown, status: AppUpdateStatus): void => cb(status)
+      ipcRenderer.on('updates:status', listener)
+      return () => {
+        ipcRenderer.removeListener('updates:status', listener)
+      }
+    }
   },
   remoteAccess: {
     getStatus: () => invoke<RemoteAccessStatus>('remoteAccess:getStatus'),
+    serverCompatibility: () =>
+      invoke<ServerCompatibility | null>('remoteAccess:serverCompatibility'),
     hasApiToken: () => invoke<boolean>('remoteAccess:hasApiToken'),
     saveApiToken: (token: string) => invoke<boolean>('remoteAccess:saveApiToken', token),
     removeApiToken: () => invoke<void>('remoteAccess:removeApiToken'),

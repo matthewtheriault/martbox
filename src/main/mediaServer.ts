@@ -13,6 +13,7 @@ import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
 import { Readable } from 'stream'
 import { app } from 'electron'
+import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
 // @ts-ignore - no types shipped
 import ffmpegStatic from 'ffmpeg-static'
 import type { Server } from 'http'
@@ -57,6 +58,7 @@ let boundPort = 0
 // (this is a no-op in dev, where there's no asar at all).
 const ffmpegPath = (ffmpegStatic as string).replace('app.asar', 'app.asar.unpacked')
 
+const APP_VERSION = app.getVersion()
 const transcodeLogPath = join(app.getPath('userData'), 'transcode.log')
 const MAX_TRANSCODE_LOG_BYTES = 2 * 1024 * 1024
 
@@ -326,6 +328,13 @@ function hasProfileAccess(profileId: number, pin: string | undefined): boolean {
 function registerMetadataApi(app: express.Express): void {
   const json = express.json()
 
+  // Lets client apps tell "server too old" / "app too old" apart from a
+  // plain connection failure. Keep this route working without any session —
+  // a client checks it before anything else.
+  app.get('/api/version', (_req, res) => {
+    const info: ServerVersionInfo = { appVersion: APP_VERSION, apiVersion: API_VERSION }
+    res.json(info)
+  })
   app.get('/api/profiles', (_req, res) => res.json(listProfiles()))
   app.post('/api/profiles', json, (req, res) => {
     res.json(createProfile(req.body.name, req.body.avatarId))
