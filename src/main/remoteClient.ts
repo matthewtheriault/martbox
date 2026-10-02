@@ -10,6 +10,7 @@ import type {
   Movie,
   Profile,
   Show,
+  SpeedTestResult,
   WatchlistItem,
   WatchlistMediaType,
   WatchProgress
@@ -64,6 +65,62 @@ export async function getServerVersion(): Promise<ServerVersionInfo | null> {
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Host request failed: /api/version (${res.status})`)
   return (await res.json()) as ServerVersionInfo
+}
+
+// Measures this device's connection to the host: latency from a few tiny
+// requests, then download speed from timing an incompressible download that
+// stops after maxMs or maxBytes, whichever comes first. A signed-in device
+// reports the result so the admin sees it under Users.
+export async function runSpeedTest(maxBytes: number, maxMs: number): Promise<SpeedTestResult> {
+  const latencies: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const start = performance.now()
+    await fetch(`${baseUrl()}/api/version`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    latencies.push(performance.now() - start)
+  }
+  const latencyMs = Math.round(Math.min(...latencies))
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), maxMs)
+  const start = performance.now()
+  let bytes = 0
+  try {
+    const res = await fetch(`${baseUrl()}/api/speedtest/download?bytes=${maxBytes}`, {
+      headers: authHeaders(),
+      signal: controller.signal
+    })
+    if (!res.ok || !res.body) throw new Error(`Speed test failed (${res.status})`)
+    const reader = res.body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+    }
+  } catch (err) {
+    // Stopping at maxMs is the normal end of a test on a slower link.
+    if (!controller.signal.aborted) throw err
+  } finally {
+    clearTimeout(timer)
+  }
+  const seconds = (performance.now() - start) / 1000
+  const mbps = Math.round(((bytes * 8) / seconds / 1e6) * 10) / 10
+  const result = { mbps, latencyMs }
+  if (authHeaders().Authorization) {
+    await request('/api/speedtest/result', jsonInit('POST', result)).catch(() => {})
+  }
+  return result
+}
+
+let autoSpeedTestDone = false
+
+// Once per launch, a short test a little after connecting — keeps the
+// admin's view current without costing much data (at most 16 MB).
+export function scheduleAutoSpeedTest(): void {
+  if (autoSpeedTestDone) return
+  autoSpeedTestDone = true
+  setTimeout(() => {
+    runSpeedTest(16 * 1024 * 1024, 3000).catch(() => {})
+  }, 15_000)
 }
 
 // Who this device is signed in as on the host (null profile = not signed

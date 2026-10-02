@@ -25,8 +25,8 @@ video to the connection.
 
 ## Recommended setup
 
-**Tailscale for transport, our own peer relay when needed, hardware
-transcoding everywhere.** $0 for the host and every friend.
+**Tailscale for transport, hardware transcoding everywhere, no extra
+servers to run.** $0 for the host and every friend.
 
 **Host setup (one-time)**
 1. Install MartBox, add media folders.
@@ -49,24 +49,23 @@ instead of buffering.
 | Path Tailscale finds | When it happens | Speed |
 |---|---|---|
 | Direct (hole-punched, IPv4 or IPv6) | Most home and mobile networks, including many CGNATs | Full — limited only by host upload |
-| **Our peer relay** (free Oracle VM, Phase 2) | Both sides behind strict NAT | Near-full — limited by host upload and the VM's bandwidth |
-| Tailscale shared DERP relay | Only if no peer relay is set up | Slow — auto-capped to 480p–720p |
+| Tailscale shared DERP relay | Both sides behind strict NAT (rare — the reference host tested ideal for direct) | Slow — auto-capped to 480p–720p |
 
 **Why this design**
 - **No router changes, nothing public:** only outbound connections from the
   house; nothing new exposed to the internet.
-- **Free:** Tailscale Personal plan (incl. peer relays), Oracle Always Free,
-  jellyfin-ffmpeg.
+- **Free, nothing extra to maintain:** Tailscale Personal plan and
+  jellyfin-ffmpeg; no relay VM or other servers.
 - **Seamless:** friends just enter a code.
-- **Fast:** direct when possible, our own relay when not, never the
-  throttled shared relay for video if we can avoid it.
+- **Fast:** direct in almost every case; the rare relayed friend gets lower
+  quality instead of buffering.
 - Trade-offs: friend devices join the tailnet (locked down by access
   rules); we depend on Tailscale's free plan; iOS backgrounding needs
   careful reconnect handling (Phase 3).
 
 ## How to make Tailscale faster
 
-Speed comes from four things, in order of impact:
+Speed comes from three things, in order of impact:
 
 1. **Get a direct path more often (no router work)**
    - Tailscale already tries hole-punching over IPv4 and IPv6 and asks the
@@ -78,21 +77,11 @@ Speed comes from four things, in order of impact:
    - Keep `tailscale.com` (tsnet) current in `sidecar/go.mod` and in the
      gomobile bridges — NAT traversal and netstack throughput improve
      between releases.
-2. **Replace the shared DERP relay with our own peer relay**
-   - Tailscale **Peer Relays** (GA, available on the free Personal plan)
-     let a node in our own tailnet relay traffic over UDP at far higher
-     throughput than DERP. Fallback order becomes direct → peer relay →
-     DERP.
-   - Run it on an **Oracle Cloud Always Free VM** near the host: install
-     Tailscale, enable the relay server on a UDP port, open that port in
-     Oracle's security list (cloud firewall — not the home router), and add
-     the relay grant to the tailnet access rules.
-   - Only needed if Phase 0 shows friends being relayed.
-3. **Fit the video to the path** (Phase 4)
+2. **Fit the video to the path** (Phase 4)
    - Direct play when the path has room; otherwise hardware transcode to a
      bitrate that fits. Relayed or slow paths degrade quality instead of
      buffering.
-4. **Make the streaming itself efficient** (Phase 4)
+3. **Make the streaming itself efficient** (Phase 4)
    - HTTP keep-alive and range requests, a bigger read-ahead buffer on
      clients, and HLS segments for transcodes so playback starts fast and
      adapts.
@@ -179,12 +168,12 @@ from outside the house, and the dashboard shows their connection.
 - Guest auth keys stay one-time, tagged, preauthorized, **non-ephemeral**
   (already the case in `src/main/tailscaleApi.ts` — ephemeral nodes would
   burn the free plan's ephemeral-minutes allowance).
-- Update `tailscale.com` in the sidecar and the gomobile bridges to the
-  latest release; confirm the embedded clients use peer relays.
-- **Peer relay (if Phase 0 shows relayed friends):** guided setup for an
-  Oracle Always Free VM as a Tailscale peer relay — region near the host,
-  UDP port opened in Oracle's security list, relay grant added to the access
-  rules. Settings shows which friends go through it.
+- Update `tailscale.com` in the sidecar (done: v1.104.0) and in the gomobile
+  bridges (with Phase 3, when the iOS/tvOS apps are rebuilt).
+- Per-friend speed test: each signed-in device measures latency and
+  download speed from the host and reports it; Settings → Users shows it.
+- No relay VM: dropped 2026-10-02 (no extra infrastructure). Relayed
+  friends get capped quality (Phase 4).
 - Experiment (measure first): if the host already runs the system Tailscale
   app, compare serving over it vs tsnet's userspace networking; switch only
   if it's clearly faster.
@@ -330,7 +319,7 @@ version ships early.
   bar, paused/playing.
 - **Direct play vs transcode** — and why (codec, bitrate cap, subtitle
   burn-in); source → output resolution/bitrate.
-- Connection: LAN / Tailscale direct / peer relay / DERP relay, latency, and
+- Connection: LAN / Tailscale direct / DERP relay, latency, and
   the stream's current bandwidth.
 - Buffering events in the last few minutes.
 - Admin actions: stop a stream (with an optional message).
@@ -339,7 +328,6 @@ version ships early.
 - Live host upload/download graph; total remote bandwidth vs measured upload
   capacity ("3 streams using 18 of 25 Mbps").
 - Per-friend: path type, latency, last throughput test, data used today.
-- Peer relay status (if set up): online, traffic through it.
 - "Run speed test" button (host upload + per-friend throughput).
 
 **Hardware**
@@ -359,7 +347,7 @@ version ships early.
 
 **Alerts (v3)**
 - Upload saturated, transcode below realtime, friend stuck on DERP relay,
-  disk nearly full or SMART warning, peer relay offline. Shown in the dashboard and as a
+  disk nearly full or SMART warning. Shown in the dashboard and as a
   desktop notification.
 
 **How it works**
@@ -416,7 +404,6 @@ end-to-end encrypted WireGuard between tailnet devices. The risks are about
 | Stolen device keys | Hashed at rest on host; Keychain / Keystore / `safeStorage` on clients; per-device revoke in Settings (also removes the tailnet device) |
 | Tailscale API token theft (can add devices to the tailnet) | Stored encrypted (`safeStorage`); scoped to the minimum needed; never logged |
 | Signed media URLs leaking (logs, history) | Short expiry, bound to user + item, never logged; strip query strings from request logs |
-| Peer relay VM compromise | Relay only forwards already-encrypted WireGuard packets (can't read video); keep the VM minimal and updated; key-only SSH |
 | Malicious media files exploiting ffmpeg | Keep jellyfin-ffmpeg current; run as the normal user, never elevated; only library files are processed |
 | Outdated dependencies | `npm audit` / Dependabot in CI; signed app updates |
 | Electron renderer compromise | Keep renderer sandbox + context isolation; no remote content in privileged windows |
@@ -431,9 +418,8 @@ No router access is needed either way, so CGNAT matters much less on the
 Tailscale path:
 1. **Tailscale direct** — many ISPs' CGNAT still allows hole-punching, and
    IPv6 is used automatically when both sides have it.
-2. **Our peer relay** on the Oracle VM when hole-punching fails — near-full
-   speed.
-3. **Tailscale DERP relay** as the last resort, with quality auto-capped.
+2. **Tailscale DERP relay** when hole-punching fails, with quality
+   auto-capped.
 
 This applies to any MartBox host, not just ours.
 
@@ -465,18 +451,15 @@ Plex:
   in Certificate Transparency logs and get scanned within minutes.
 
 ## Open questions
-- Is any friend actually relayed today, and how slow is it? (Phase 0
-  answers this; decides whether the peer relay is needed.)
+- Is any friend actually relayed, and how slow is it? (The Remote Access
+  screen shows each friend's path; Users shows their speed test.)
 - Host's upload bandwidth — sets the realistic per-friend bitrate and how many
   simultaneous remote streams are viable.
 - Tailscale free Personal plan limits (third-party summaries, verify on
   tailscale.com): 6 users, unlimited user devices, ~50 tagged resources
-  (caps friend devices, since they join tagged), limited ephemeral minutes,
-  and a small number of free peer relays.
-- Do tsnet / the gomobile bridges use peer relays with no extra code?
+  (caps friend devices, since they join tagged), limited ephemeral minutes.
 - tsnet knob to disable automatic router port mapping, if the family wants
   it off.
 - Tailscale for other hosts: each host needs their own Tailscale account +
-  API key (free but clunky). Alternative: one shared Headscale coordination
-  server on a free Oracle VM (low bandwidth, seamless, but we'd operate a
-  service). Defer until other people run servers.
+  API key (free but clunky). A shared self-hosted coordination server was
+  considered and dropped (no extra infrastructure).

@@ -11,6 +11,7 @@ import {
 } from 'fs'
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
+import { randomBytes } from 'crypto'
 import { app } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
 // @ts-ignore - no types shipped
@@ -47,6 +48,7 @@ import {
   authenticateDeviceKey,
   deviceAddrsForProfile,
   redeemLoginCode,
+  saveDeviceSpeed,
   type AuthenticatedDevice
 } from './auth'
 import { FailureLimiter, bearerToken, isPublicRemoteRoute } from './authCore'
@@ -136,6 +138,12 @@ function isRestrictedDevice(res: express.Response): boolean {
 const ffmpegPath = (ffmpegStatic as string).replace('app.asar', 'app.asar.unpacked')
 
 const APP_VERSION = app.getVersion()
+
+// 1 MB of random bytes, sent repeatedly: incompressible over the wire, and
+// cheap to produce for every test.
+const SPEEDTEST_CHUNK = randomBytes(1024 * 1024)
+const SPEEDTEST_DEFAULT_BYTES = 16 * 1024 * 1024
+const SPEEDTEST_MAX_BYTES = 64 * 1024 * 1024
 const transcodeLogPath = join(app.getPath('userData'), 'transcode.log')
 const MAX_TRANSCODE_LOG_BYTES = 2 * 1024 * 1024
 
@@ -468,6 +476,48 @@ function registerMetadataApi(app: express.Express): void {
       device: auth.kind === 'device' ? auth.device : null,
       loginRequired: isRemoteLoginRequired()
     })
+  })
+
+  // Speed test: a client downloads up to `bytes` of incompressible data and
+  // times it (compression() skips octet-stream). Needs a key like any other
+  // route; capped so it can't be used to tie up the host's upload.
+  app.get('/api/speedtest/download', (req, res) => {
+    const requested = parseInt(req.query.bytes as string, 10)
+    const total = Math.min(
+      Number.isFinite(requested) && requested > 0 ? requested : SPEEDTEST_DEFAULT_BYTES,
+      SPEEDTEST_MAX_BYTES
+    )
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(total),
+      'Cache-Control': 'no-store'
+    })
+    let sent = 0
+    const writeMore = (): void => {
+      while (sent < total) {
+        const chunk = SPEEDTEST_CHUNK.subarray(0, Math.min(SPEEDTEST_CHUNK.length, total - sent))
+        sent += chunk.length
+        if (!res.write(chunk)) {
+          res.once('drain', writeMore)
+          return
+        }
+      }
+      res.end()
+    }
+    req.on('close', () => res.removeAllListeners('drain'))
+    writeMore()
+  })
+  // The device reports its own result so the admin sees it under Users.
+  app.post('/api/speedtest/result', json, (req, res) => {
+    const auth = authOf(res)
+    const mbps = Number(req.body?.mbps)
+    const latencyMs = Number(req.body?.latencyMs)
+    if (auth.kind !== 'device' || !Number.isFinite(mbps) || !Number.isFinite(latencyMs)) {
+      res.status(400).json({ error: 'Only a signed-in device can report a speed test' })
+      return
+    }
+    saveDeviceSpeed(auth.device.id, Math.max(0, mbps), Math.max(0, latencyMs))
+    res.json({ ok: true })
   })
 
   // A signed-in friend only sees (and can only pick) their own profile.

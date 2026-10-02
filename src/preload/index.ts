@@ -21,6 +21,7 @@ import type {
   Show,
   ShowMetadataPatch,
   ShowSearchResult,
+  SpeedTestResult,
   UserDevice,
   WatchlistItem,
   WatchlistMediaType,
@@ -30,6 +31,7 @@ import type {
   RemoteAccessStatus,
   RemoteSession,
   ServerCompatibility,
+  TailnetPolicyCheck,
   TailscaleGuestDevice
 } from '../shared/remoteAccess'
 
@@ -196,7 +198,12 @@ const api = {
     serverCompatibility: () =>
       invoke<ServerCompatibility | null>('remoteAccess:serverCompatibility'),
     session: () => invoke<RemoteSession | null>('remoteAccess:session'),
+    speedTest: () => invoke<SpeedTestResult>('remoteAccess:speedTest'),
     getRequireLogin: () => invoke<boolean>('remoteAccess:getRequireLogin'),
+    checkPolicy: (requestingProfileId: number) =>
+      invoke<TailnetPolicyCheck>('remoteAccess:checkPolicy', requestingProfileId),
+    lockDownPolicy: (requestingProfileId: number) =>
+      invoke<TailnetPolicyCheck>('remoteAccess:lockDownPolicy', requestingProfileId),
     setRequireLogin: (requestingProfileId: number, required: boolean) =>
       invoke<void>('remoteAccess:setRequireLogin', requestingProfileId, required),
     hasApiToken: () => invoke<boolean>('remoteAccess:hasApiToken'),

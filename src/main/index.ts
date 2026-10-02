@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc'
 import { startMediaServer, getMediaServerRemotePort } from './mediaServer'
 import { startSidecar, stopSidecar, getSidecarLocalPort } from './tsnetSidecar'
 import { authHeaders, handleClientStatus } from './clientSession'
+import { scheduleAutoSpeedTest } from './remoteClient'
 import { getSetting } from './db'
 import { logError } from './errorLog'
 import { sweepOrphanedImages } from './imageCache'
@@ -154,6 +155,7 @@ async function createWindow(): Promise<void> {
           onStatus(status)
           handleClientStatus(status).then((error) => {
             if (error) onStatus({ status: 'error', message: error })
+            else if (status.status === 'connected') scheduleAutoSpeedTest()
           })
         }
       })

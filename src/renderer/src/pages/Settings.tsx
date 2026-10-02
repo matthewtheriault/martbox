@@ -8,6 +8,7 @@ import type {
   Profile,
   ScanProgress,
   Show,
+  SpeedTestResult,
   UserDevice
 } from '../../../shared/types'
 import {
@@ -17,6 +18,7 @@ import {
   type RemoteAccessStatus,
   type RemoteSession,
   type ServerCompatibility,
+  type TailnetPolicyCheck,
   type TailscaleGuestDevice
 } from '../../../shared/remoteAccess'
 import { useProfile } from '../lib/ProfileContext'
@@ -66,6 +68,12 @@ export default function Settings(): JSX.Element {
   const [usersError, setUsersError] = useState<string | null>(null)
   const [requireLogin, setRequireLogin] = useState(false)
   const [session, setSession] = useState<RemoteSession | null>(null)
+  const [policyCheck, setPolicyCheck] = useState<TailnetPolicyCheck | null>(null)
+  const [policyError, setPolicyError] = useState<string | null>(null)
+  const [policyBusy, setPolicyBusy] = useState(false)
+  const [speedResult, setSpeedResult] = useState<SpeedTestResult | null>(null)
+  const [speedTesting, setSpeedTesting] = useState(false)
+  const [speedError, setSpeedError] = useState<string | null>(null)
   const [connectCodeInput, setConnectCodeInput] = useState('')
   const [connectError, setConnectError] = useState<string | null>(null)
   const [guests, setGuests] = useState<TailscaleGuestDevice[] | null>(null)
@@ -115,6 +123,18 @@ export default function Settings(): JSX.Element {
 
   useEffect(() => {
     if (remoteMode === 'host' && remoteStatus.status === 'connected') refreshGuests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteMode, remoteStatus.status])
+
+  useEffect(() => {
+    if (remoteMode !== 'host' || remoteStatus.status !== 'connected' || !activeProfile.isAdmin) return
+    setPolicyError(null)
+    window.api.remoteAccess
+      .checkPolicy(activeProfile.id)
+      .then(setPolicyCheck)
+      .catch((err) =>
+        setPolicyError(err instanceof Error ? err.message : 'Could not read the access rules')
+      )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteMode, remoteStatus.status])
 
@@ -305,6 +325,39 @@ export default function Settings(): JSX.Element {
     refreshProfiles()
   }
 
+  const lockDownPolicy = async (): Promise<void> => {
+    const ok = window.confirm(
+      'MartBox will update your Tailscale access rules:\n\n' +
+        "• remove any \"allow everything\" rule\n" +
+        "• let friends' devices reach only MartBox on this computer\n" +
+        '• keep your own devices able to reach each other and this computer\n' +
+        '• keep your other rules\n\n' +
+        'Comments in the rules file will be removed. Continue?'
+    )
+    if (!ok) return
+    setPolicyBusy(true)
+    setPolicyError(null)
+    try {
+      setPolicyCheck(await window.api.remoteAccess.lockDownPolicy(activeProfile.id))
+    } catch (err) {
+      setPolicyError(err instanceof Error ? err.message : 'Could not update the access rules')
+    } finally {
+      setPolicyBusy(false)
+    }
+  }
+
+  const runSpeedTest = async (): Promise<void> => {
+    setSpeedTesting(true)
+    setSpeedError(null)
+    try {
+      setSpeedResult(await window.api.remoteAccess.speedTest())
+    } catch (err) {
+      setSpeedError(err instanceof Error ? err.message : 'Speed test failed')
+    } finally {
+      setSpeedTesting(false)
+    }
+  }
+
   const toggleRequireLogin = async (required: boolean): Promise<void> => {
     await window.api.remoteAccess.setRequireLogin(activeProfile.id, required)
     setRequireLogin(required)
@@ -425,6 +478,8 @@ export default function Settings(): JSX.Element {
                               {device.lastSeenAt
                                 ? `Last seen ${new Date(`${device.lastSeenAt}Z`).toLocaleString()}`
                                 : 'Never seen'}
+                              {device.speedMbps !== null &&
+                                ` · ${device.speedMbps} Mbps, ${device.latencyMs} ms`}
                             </span>
                           </span>
                           <button className="btn-secondary" onClick={() => signOutDevice(device.id)}>
@@ -670,6 +725,32 @@ export default function Settings(): JSX.Element {
                     <p className="settings-hint">
                       To invite someone, click Login Code next to their name under Users.
                     </p>
+                    {policyCheck && (
+                      <p className={policyCheck.lockedDown ? 'settings-status-ok' : 'settings-status-error'}>
+                        {policyCheck.lockedDown
+                          ? "Tailscale access rules are locked down: friends' devices can reach only MartBox."
+                          : [
+                              policyCheck.allowAll &&
+                                'An "allow everything" rule lets every device reach every other device.',
+                              !policyCheck.guestGrant &&
+                                "There's no rule letting friends' devices reach MartBox.",
+                              !policyCheck.tagOwners && 'The MartBox device tags have no owner.',
+                              policyCheck.extraGuestRules > 0 &&
+                                `${policyCheck.extraGuestRules} other rule${policyCheck.extraGuestRules === 1 ? '' : 's'} let friends' devices reach more than MartBox — review ${policyCheck.extraGuestRules === 1 ? 'it' : 'them'} in the Tailscale admin console.`
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                      </p>
+                    )}
+                    {policyCheck &&
+                      (policyCheck.allowAll || !policyCheck.guestGrant || !policyCheck.tagOwners) && (
+                        <div className="settings-row">
+                          <button className="btn-primary" onClick={lockDownPolicy} disabled={policyBusy}>
+                            {policyBusy ? 'Updating…' : 'Lock Down Access Rules'}
+                          </button>
+                        </div>
+                      )}
+                    {policyError && <p className="settings-status-error">{policyError}</p>}
                     <label className="settings-toggle">
                       <input
                         type="checkbox"
@@ -764,6 +845,19 @@ export default function Settings(): JSX.Element {
                 their router or forwarding UDP port {TSNET_UDP_PORT}.
               </p>
             )}
+            {remoteStatus.status === 'connected' && (
+              <div className="settings-row">
+                <button className="btn-secondary" onClick={runSpeedTest} disabled={speedTesting}>
+                  {speedTesting ? 'Testing…' : 'Test Speed'}
+                </button>
+                {speedResult && (
+                  <p className="settings-hint" style={{ margin: 0, alignSelf: 'center' }}>
+                    {speedResult.mbps} Mbps from the server, {speedResult.latencyMs} ms latency
+                  </p>
+                )}
+              </div>
+            )}
+            {speedError && <p className="settings-status-error">{speedError}</p>}
             {session && (
               <p className={session.profile ? 'settings-status-ok' : 'settings-hint'}>
                 {session.profile

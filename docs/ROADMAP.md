@@ -13,9 +13,9 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
 2. **Launch consoles:** GB/GBC/GBA, NES, SNES, N64, NDS, PS1. Later:
    GameCube (Android + desktop only). PS2 skipped for now.
 3. **Remote access: Tailscale is the main path** — no router changes, nothing
-   public. Speed via direct connections, our own Tailscale peer relay on a
-   free Oracle VM if friends are relayed, and hardware transcoding. Public
-   HTTPS is an optional later add-on for other hosts.
+   public, no extra servers to run (no relay VM). Speed via direct
+   connections and hardware transcoding. Public HTTPS is an optional later
+   add-on for other hosts.
 4. **Users: Jellyfin/Emby model.** No public sign-up and no central account
    service. The host admin creates each user, which generates a one-time
    login code/QR; the friend signs in with it and the device keeps its own
@@ -61,31 +61,19 @@ family router), nothing exposed to the open internet. Details in
    gomobile bridges, invite codes). Friend devices join as tagged devices,
    locked down by access rules. Tailscale hole-punches directly in most
    cases, with no port forwarding.
-2. **Our own peer relay when needed:** if friends end up relayed, a
-   Tailscale **peer relay** (free on the Personal plan) on an Oracle Cloud
-   Always Free VM replaces the slow shared DERP relays. The VM's port is
-   opened in Oracle's cloud firewall, not on the home router.
-3. **To drop the dependency on Tailscale Inc. (later, optional):**
-   the same Oracle VM could run **Headscale** (self-hosted control
-   server; tsnet supports a custom `ControlURL`) + a **self-hosted DERP
-   relay**. Oracle Always Free is $0, but with strings:
-   - Card required at signup; 10 TB/mo outbound free.
-   - Idle reclaim: free instances can be stopped if, over 7 days, 95th-pct
-     CPU, network, and (A1) memory are all under 20% — a mostly-idle relay
-     fits that. Upgrading the account to Pay-As-You-Go exempts it (still $0
-     inside Always Free limits, but a card is on file).
-   - A1 ARM capacity is often unavailable in popular regions; reportedly
-     reduced from 4 OCPU/24 GB to 2 OCPU/12 GB in June 2026 (plenty for a
-     relay either way).
-   - Treat it as an optional fallback, never the primary path.
-4. **Adaptive bitrate + hardware transcoding** (jellyfin-ffmpeg, encoder
+2. **No relay servers to run.** The reference host tested ideal for direct
+   connections (no CGNAT, easy NAT, IPv6, UPnP). A friend who still ends up
+   on Tailscale's shared relay gets lower quality instead of buffering. A
+   self-hosted relay or Headscale (e.g. on a free cloud VM) was considered
+   and dropped — not worth maintaining extra infrastructure (2026-10-02).
+3. **Adaptive bitrate + hardware transcoding** (jellyfin-ffmpeg, encoder
    probing) so slow paths degrade quality instead of buffering. Host upload
    bandwidth is the hard ceiling.
-5. **Seamless UX:** admin-created users sign in with a one-time login code /
+4. **Seamless UX:** admin-created users sign in with a one-time login code /
    QR from host Settings → Users (per-device keys in Keychain/Keystore),
    friends never see Tailscale, instant reconnect, one plain-English status
    line in host Settings.
-6. **Public HTTPS (optional later):** Plex-style direct HTTPS for other
+5. **Public HTTPS (optional later):** Plex-style direct HTTPS for other
    hosts who can open a router port. Not planned for our host.
 
 ## Retro games approach
@@ -132,7 +120,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 | # | Phase | Clients | Size |
 |---|---|---|---|
 | 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
-| 1 | Remote access v2 (Tailscale speed + peer relay + users/login codes + 4K/HDR direct play, quality ladder, HW transcode + server dashboard) | all | 5–7 wks |
+| 1 | Remote access v2 (Tailscale speed + users/login codes + 4K/HDR direct play, quality ladder, HW transcode + server dashboard) | all | 5–7 wks |
 | 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
 | 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
 | 4 | Retro games | all | 8–12 wks |
@@ -248,8 +236,8 @@ Note: screens built in Phases 2–6 will be restyled here. Agreeing the design
 tokens before Phase 2 would reduce that rework (optional).
 
 ## Open questions
-- Are friends connecting directly or relayed? (Decides whether the Oracle
-  peer relay is needed.)
+- Are friends connecting directly or relayed? (Relayed friends get capped
+  quality; the Remote Access screen shows each friend's path.)
 - Host upload bandwidth (caps simultaneous remote streams/bitrate).
 - Optional later: a native SwiftUI Mac *client* sharing iOS code (the host
   server stays Electron).

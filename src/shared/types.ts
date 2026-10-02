@@ -20,6 +20,15 @@ export interface UserDevice {
   name: string
   createdAt: string
   lastSeenAt: string | null
+  // Latest speed test from this device to the host, if it has run one.
+  speedMbps: number | null
+  latencyMs: number | null
+  speedTestedAt: string | null
+}
+
+export interface SpeedTestResult {
+  mbps: number
+  latencyMs: number
 }
 
 export interface LoginCodeResult {
