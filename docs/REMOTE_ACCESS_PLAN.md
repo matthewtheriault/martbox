@@ -123,6 +123,9 @@ request sends the device key; the login code is useless after redemption.
 
 ## Phases
 
+**Done when** a friend signs in with a login code, streams 1080p smoothly
+from outside the house, and the dashboard shows their connection.
+
 ### Phase 0 — Diagnose (no router changes)
 - Surface in Settings whether each Tailscale peer is **direct or relayed**
   (tsnet `LocalClient().Status()` → peer `CurAddr` vs `Relay`; emit it from
@@ -197,7 +200,11 @@ request sends the device key; the login code is useless after redemption.
   device key; `TsnetClient` restarts instantly on foreground, reusing its
   persisted node state (no re-auth), with a short "Reconnecting…" state
   instead of an error. Playback resumes from position.
+- tvOS: a short code that is easy to enter with the Siri Remote (no QR
+  scanning on a TV).
 - Keep v1 invite codes working during transition.
+- Real-iPhone test of the tsnet tunnel (so far Simulator only).
+- Ship the new iOS/tvOS builds to friends via TestFlight or the App Store.
 
 ### Phase 4 — Hardware transcoding, 4K/HDR + efficient streaming
 
