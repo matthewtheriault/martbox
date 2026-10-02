@@ -36,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
@@ -167,6 +168,60 @@ func serveHostForward(ln net.Listener, forwardTo string) {
 	}
 }
 
+const (
+	// A dial to a peer the tailnet hasn't routed yet doesn't fail — the
+	// SYN is silently dropped and TCP retransmits with exponential backoff
+	// (1s, 2s, 4s, 8s…), so one stuck dial can take tens of seconds. Short
+	// attempts with a fresh SYN each time get through as soon as the path is
+	// up.
+	dialAttemptTimeout = 3 * time.Second
+	dialTotalTimeout   = 30 * time.Second
+	// How long client mode waits for the host to answer before reporting
+	// "connected" anyway (the app then retries on its own).
+	hostWarmupTimeout = 20 * time.Second
+)
+
+func dialHost(srv *tsnet.Server, hostAddr string) (net.Conn, error) {
+	deadline := time.Now().Add(dialTotalTimeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), dialAttemptTimeout)
+		conn, err := srv.Dial(ctx, "tcp", hostAddr)
+		cancel()
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil, lastErr
+}
+
+// waitForHost blocks until the host answers a disco ping or the timeout
+// passes. srv.Up returns once this node is logged in to the control plane,
+// which isn't the same as having a path to the host — pinging also starts
+// NAT traversal early, so the first real request usually goes direct.
+func waitForHost(ctx context.Context, srv *tsnet.Server, hostIP netip.Addr) bool {
+	if !hostIP.IsValid() {
+		return false
+	}
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return false
+	}
+	deadline := time.Now().Add(hostWarmupTimeout)
+	for time.Now().Before(deadline) {
+		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		res, err := lc.Ping(pctx, hostIP, tailcfg.PingDisco)
+		cancel()
+		if err == nil && res != nil && res.Err == "" {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
+}
+
 func serveClientForward(ln net.Listener, srv *tsnet.Server, hostAddr string) {
 	for {
 		conn, err := ln.Accept()
@@ -175,7 +230,7 @@ func serveClientForward(ln net.Listener, srv *tsnet.Server, hostAddr string) {
 			continue
 		}
 		go func(c net.Conn) {
-			remote, err := srv.Dial(context.Background(), "tcp", hostAddr)
+			remote, err := dialHost(srv, hostAddr)
 			if err != nil {
 				c.Close()
 				return
@@ -249,12 +304,16 @@ func main() {
 			os.Exit(1)
 		}
 		localPort := ln.Addr().(*net.TCPAddr).Port
-		connected := statusMsg{Status: "connected", TailscaleAddr: tailscaleAddr, LocalPort: localPort}
-		emit(connected)
 		var hostIP netip.Addr
 		if ap, err := netip.ParseAddrPort(*hostAddr); err == nil {
 			hostIP = ap.Addr()
 		}
+		// Hold "connected" (and the local port the app sends requests to)
+		// until the host actually answers, so the app's first request isn't
+		// the one that waits out the path coming up.
+		waitForHost(ctx, srv, hostIP)
+		connected := statusMsg{Status: "connected", TailscaleAddr: tailscaleAddr, LocalPort: localPort}
+		emit(connected)
 		go watchPeers(ctx, srv, connected, hostIP)
 		serveClientForward(ln, srv, *hostAddr)
 	}

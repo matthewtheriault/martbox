@@ -84,7 +84,11 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div>{stuck ? (remoteStatus.message ?? 'Could not connect to that server.') : 'Starting MartBox…'}</div>
           {remoteMode === 'client' && !stuck && remoteStatus.status !== 'idle' && (
-            <div className="settings-hint">Connecting to host… ({remoteStatus.status})</div>
+            <div className="settings-hint">
+              {remoteStatus.status === 'connected'
+                ? 'Loading your server…'
+                : 'Connecting to your server…'}
+            </div>
           )}
           {remoteMode === 'client' && (
             <button className="btn-secondary" onClick={abortConnect}>
