@@ -8,6 +8,9 @@ import {
   isExpired,
   isPublicRemoteRoute,
   isTailnetAddress,
+  isMediaRoute,
+  signMediaToken,
+  verifyMediaToken,
   normalizeLoginCode
 } from './authCore'
 
@@ -137,5 +140,39 @@ describe('isTailnetAddress', () => {
     expect(isTailnetAddress(['100', '128', '0', '1'].join('.'))).toBe(false)
     expect(isTailnetAddress(['192', '168', '1', '2'].join('.'))).toBe(false)
     expect(isTailnetAddress('not an ip')).toBe(false)
+  })
+})
+
+describe('media tokens', () => {
+  const secret = 'test-secret'
+  const now = Date.parse('2026-10-02T12:00:00Z')
+
+  it('round-trips a device id', () => {
+    const token = signMediaToken(secret, 42, now + 60_000)
+    expect(verifyMediaToken(secret, token, now)).toBe(42)
+  })
+
+  it('rejects expired tokens', () => {
+    const token = signMediaToken(secret, 42, now - 1000)
+    expect(verifyMediaToken(secret, token, now)).toBeNull()
+  })
+
+  it('rejects tampered tokens and the wrong secret', () => {
+    const token = signMediaToken(secret, 42, now + 60_000)
+    const [, sig] = token.split('.')
+    const forged = `${Buffer.from(`1.${Math.floor((now + 60_000) / 1000)}`).toString('base64url')}.${sig}`
+    expect(verifyMediaToken(secret, forged, now)).toBeNull()
+    expect(verifyMediaToken('other-secret', token, now)).toBeNull()
+    expect(verifyMediaToken(secret, 'garbage', now)).toBeNull()
+    expect(verifyMediaToken(secret, `${token}.x`, now)).toBeNull()
+  })
+
+  it('only covers media routes', () => {
+    for (const p of ['/stream/movie/1', '/probe/episode/2', '/subtitles/movie/1/0', '/image']) {
+      expect(isMediaRoute(p)).toBe(true)
+    }
+    for (const p of ['/api/movies', '/api/profiles', '/api/auth/me', '/images', '/streams']) {
+      expect(isMediaRoute(p)).toBe(false)
+    }
   })
 })

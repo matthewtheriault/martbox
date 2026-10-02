@@ -1,4 +1,5 @@
-import { db } from './db'
+import { randomBytes } from 'crypto'
+import { db, getSetting, setSetting } from './db'
 import { listProfiles } from './repository'
 import {
   FailureLimiter,
@@ -8,6 +9,9 @@ import {
   hashSecret,
   isExpired,
   isTailnetAddress,
+  MEDIA_TOKEN_TTL_MS,
+  signMediaToken,
+  verifyMediaToken,
   normalizeLoginCode
 } from './authCore'
 import type { Profile, UserDevice } from '../shared/types'
@@ -143,6 +147,38 @@ export function saveDeviceSpeed(deviceId: number, mbps: number, latencyMs: numbe
   db.prepare(
     "UPDATE devices SET speed_mbps = ?, latency_ms = ?, speed_tested_at = datetime('now') WHERE id = ?"
   ).run(mbps, latencyMs, deviceId)
+}
+
+// HMAC key for signed media links, created once per server. Not a user
+// secret — losing it just invalidates outstanding links, which clients
+// refetch.
+function mediaTokenSecret(): string {
+  let secret = getSetting('mediaTokenSecret')
+  if (!secret) {
+    secret = randomBytes(32).toString('hex')
+    setSetting('mediaTokenSecret', secret)
+  }
+  return secret
+}
+
+export function createMediaToken(deviceId: number): { token: string; expiresAt: string } {
+  const expiresAtMs = Date.now() + MEDIA_TOKEN_TTL_MS
+  return {
+    token: signMediaToken(mediaTokenSecret(), deviceId, expiresAtMs),
+    expiresAt: new Date(expiresAtMs).toISOString()
+  }
+}
+
+// Same rules as a device key: the device must still exist and its user
+// must not be disabled.
+export function authenticateMediaToken(token: string): AuthenticatedDevice | null {
+  const deviceId = verifyMediaToken(mediaTokenSecret(), token)
+  if (deviceId === null) return null
+  const row = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId) as any | undefined
+  if (!row) return null
+  const profile = findProfile(row.profile_id)
+  if (!profile || profile.disabled) return null
+  return { device: rowToDevice(row), profile }
 }
 
 export function listDevices(profileId?: number): UserDevice[] {

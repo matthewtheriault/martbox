@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 
 // Pure helpers behind server-local users (Jellyfin/Emby model): the admin
 // creates a user, MartBox mints a one-time login code, and redeeming it
@@ -129,4 +129,34 @@ export class FailureLimiter {
   recordSuccess(): void {
     this.failures = []
   }
+}
+
+// Signed media links: players that can't send an Authorization header
+// (AVPlayer, <img>/AsyncImage, a TV's video player) get a short-lived
+// token instead, appended as ?mt= to stream, image, probe and subtitle URLs
+// only. It names the device, so signing the device out kills its tokens too.
+export const MEDIA_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
+const MEDIA_PATH_PREFIXES = ['/stream/', '/probe/', '/subtitles/']
+
+export function isMediaRoute(path: string): boolean {
+  return path === '/image' || MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))
+}
+
+export function signMediaToken(secret: string, deviceId: number, expiresAtMs: number): string {
+  const payload = Buffer.from(`${deviceId}.${Math.floor(expiresAtMs / 1000)}`).toString('base64url')
+  const sig = createHmac('sha256', secret).update(payload).digest('base64url')
+  return `${payload}.${sig}`
+}
+
+// The device id from a valid, unexpired token; null otherwise.
+export function verifyMediaToken(secret: string, token: string, now = Date.now()): number | null {
+  const [payload, sig, extra] = token.split('.')
+  if (!payload || !sig || extra !== undefined) return null
+  const expected = createHmac('sha256', secret).update(payload).digest()
+  const given = Buffer.from(sig, 'base64url')
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null
+  const [deviceId, expSec] = Buffer.from(payload, 'base64url').toString().split('.').map(Number)
+  if (!Number.isInteger(deviceId) || !Number.isInteger(expSec)) return null
+  if (expSec * 1000 <= now) return null
+  return deviceId
 }

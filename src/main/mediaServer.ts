@@ -46,12 +46,14 @@ import {
 import { probeFile, canDirectPlay } from './ffprobe'
 import {
   authenticateDeviceKey,
+  authenticateMediaToken,
+  createMediaToken,
   deviceAddrsForProfile,
   redeemLoginCode,
   saveDeviceSpeed,
   type AuthenticatedDevice
 } from './auth'
-import { FailureLimiter, bearerToken, isPublicRemoteRoute } from './authCore'
+import { FailureLimiter, bearerToken, isMediaRoute, isPublicRemoteRoute } from './authCore'
 import { revokeGuestDevicesByAddr } from './tailscaleApi'
 import { logError } from './errorLog'
 import { getSetting } from './db'
@@ -91,6 +93,19 @@ function authenticate(req: express.Request, res: express.Response, next: express
     return
   }
   const key = bearerToken(req.headers.authorization)
+  // Players that can't send a header carry a signed media link instead —
+  // accepted on media routes only, never for the JSON API.
+  const mediaToken = typeof req.query.mt === 'string' ? req.query.mt : null
+  if (!key && mediaToken && isMediaRoute(req.path)) {
+    const device = authenticateMediaToken(mediaToken)
+    if (!device) {
+      res.status(401).json({ error: 'signed-out' })
+      return
+    }
+    res.locals.auth = { kind: 'device', ...device } satisfies RequestAuth
+    next()
+    return
+  }
   if (key) {
     const device = authenticateDeviceKey(key)
     if (!device) {
@@ -467,6 +482,17 @@ function registerMetadataApi(app: express.Express): void {
       return
     }
     res.json({ deviceKey: result.deviceKey, profile: result.profile })
+  })
+  // A signed media link for this device (see authCore.ts). Clients append
+  // it as ?mt= to stream/image/probe/subtitle URLs and refetch before it
+  // expires.
+  app.get('/api/auth/media-token', (_req, res) => {
+    const auth = authOf(res)
+    if (auth.kind !== 'device') {
+      res.status(400).json({ error: 'Only a signed-in device can get a media token' })
+      return
+    }
+    res.json(createMediaToken(auth.device.id))
   })
   app.get('/api/auth/me', (_req, res) => {
     const auth = authOf(res)
