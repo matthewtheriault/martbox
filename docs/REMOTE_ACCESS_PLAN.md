@@ -65,6 +65,60 @@ name) and gets back a long-lived **device key** for that user, stored in the
 Keychain (Apple) / Keystore (Android) / `safeStorage` (Electron). Every later
 request sends the device key; the login code is useless after redemption.
 
+## Recommended setup: the best free option
+
+**Direct HTTPS first, Tailscale as backup, hardware transcoding everywhere.**
+$0 for every host and friend; we run no servers.
+
+**Host setup (one-time, ~5 minutes)**
+1. Install MartBox, add media folders.
+2. Settings → Remote Access: paste a free DuckDNS token. The app then:
+   - opens the port via UPnP/NAT-PMP (manual-forward steps if the router
+     refuses);
+   - keeps `<name>.duckdns.org` pointed at the home IP;
+   - gets and renews a Let's Encrypt cert (HTTPS);
+   - detects CGNAT and IPv6 and says so in plain English ("Friends can
+     reach you directly ✓");
+   - tests reachability from outside.
+3. Settings → Users → Add user → one-time login code / QR to send the friend.
+
+**Friend setup:** install the app (iPhone, Apple TV, Android, Fire TV,
+computer), enter or scan the code. Stays signed in with their own history.
+
+**On play:** the client races LAN, direct HTTPS, IPv6 and Tailscale and uses
+the first that answers, re-racing on network change. The host transcodes
+with the GPU (NVIDIA / Intel / AMD / Apple) and drops quality to fit instead
+of buffering.
+
+**How each kind of host fares**
+
+| Host's network | Friends connect via | Speed |
+|---|---|---|
+| Normal home internet (most people) | Direct HTTPS | Full — limited only by host upload |
+| CGNAT, has IPv6 | Direct over IPv6 | Full (if the friend has IPv6 too) |
+| CGNAT, no IPv6 | Tailscale direct (hole-punched) | Usually full |
+| Strict NAT on both sides (rare) | Tailscale free DERP relays | Slow — auto-capped to 480p–720p |
+| Wants to fix that last case | Optional guide: ask ISP for a public IP, or own free Oracle VM relay | Full |
+
+**Why this design**
+- **Free:** DuckDNS, Let's Encrypt, UPnP, Tailscale's free plan,
+  jellyfin-ffmpeg.
+- **Seamless:** friends never see Tailscale, ports or domains — just a code.
+- **Faster than Tailscale-only:** most friends go direct; no iOS
+  background tunnel drops on the main path.
+- **No dead ends:** worst case is lower quality, never "can't connect".
+- **Private:** no central accounts, nobody in the middle of the video.
+- What Plex has that we don't: a fast paid relay for the strict-NAT case.
+
+**Notes on Tailscale and transcoding**
+- Tailscale *direct* paths are fast: WireGuard overhead is small, and even
+  tsnet's userspace networking is normally well above home upload speeds.
+  Only DERP-relayed paths are slow — Phase 0's diagnostics show which one
+  friends get.
+- Hardware transcoding happens on the host before the video goes over any
+  path, so Phase 4 works identically over HTTPS or Tailscale (and matters
+  most on relayed paths).
+
 ## Phases
 
 ### Phase 0 — Diagnose (cheap, do first)
@@ -111,8 +165,11 @@ request sends the device key; the login code is useless after redemption.
   updated.
 - Let's Encrypt via ACME DNS-01 (e.g. `acme-client` npm package), cert
   stored in `userData`, auto-renewed.
-- Settings → Remote Access shows: mapping status, public URL, cert expiry,
-  "Test from outside" result.
+- **Network detection:** compare the UPnP-reported external IP with the real
+  public IP, and flag a WAN address in the shared CGNAT range (100.64/10, RFC 6598) → CGNAT. Detect a
+  global IPv6 address and serve on it too.
+- Settings → Remote Access shows: mapping status, CGNAT/IPv6 result in plain
+  English, public URL, cert expiry, "Test from outside" result.
 
 ### Phase 3 — Clients: login codes + connection racing
 - Sign-in screen on every client: enter or scan a login code, redeem it,
@@ -140,13 +197,17 @@ request sends the device key; the login code is useless after redemption.
 
 ## If the host is behind CGNAT
 
-Port forwarding can't work. Options, best first:
-1. Ask the ISP for a public IPv4 (often free or cheap) or use IPv6 if both
-   sides have it.
-2. Rent a small VPS and tunnel the public port to the host (WireGuard or
-   `frp`). Friends hit the VPS; throughput limited by the VPS's bandwidth.
-   Still far faster than DERP relays.
-3. Stay on Tailscale-only with Phase 0's direct-path work.
+Applies to any MartBox host, not just ours, so it must be automatic. Port
+forwarding can't work, but the client's connection race falls through
+these on its own:
+1. **IPv6** direct, if both sides have it (no forwarding needed).
+2. **Tailscale direct** — many ISPs' CGNAT still allows hole-punching.
+3. **Tailscale DERP relay**, with remote quality auto-capped to 480p–720p.
+
+Optional, for technical hosts (a guided page in Settings):
+- Ask the ISP for a public IPv4 (often free).
+- A free Oracle Always Free VM as their own relay (WireGuard/`frp` tunnel,
+  or a Tailscale peer relay — check free-plan limits). No paid VPS.
 
 Not recommended: **Tailscale Funnel** (always relayed, unpublished bandwidth
 caps, heavy streaming may violate AUP) and **Cloudflare Tunnel** (ToS
@@ -160,3 +221,9 @@ restricts serving video outside their paid video products).
   wildcard cert).
 - Whether to drop the gomobile `TsnetBridge` from iOS/tvOS entirely once the
   public path is proven, to simplify those builds.
+- Tailscale for other hosts: each host needs their own Tailscale account +
+  API key (free but clunky). Alternative: one shared Headscale coordination
+  server on a free Oracle VM (low bandwidth, seamless, but we'd operate a
+  service). Defer until other people run servers.
+- Verify Tailscale free Personal plan limits (users/devices) and whether
+  peer relays are available on it.
