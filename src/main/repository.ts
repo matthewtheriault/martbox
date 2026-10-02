@@ -124,7 +124,8 @@ function rowToProfile(r: any): Profile {
     avatarId: r.avatar_id,
     createdAt: r.created_at,
     isAdmin: !!r.is_admin,
-    hasPin: !!r.pin
+    hasPin: !!r.pin,
+    disabled: !!r.disabled
   }
 }
 

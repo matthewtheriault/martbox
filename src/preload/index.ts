@@ -11,6 +11,7 @@ import type {
   IptvRefreshResult,
   IptvSettingsInfo,
   Library,
+  LoginCodeResult,
   MediaType,
   Movie,
   MovieMetadataPatch,
@@ -20,12 +21,14 @@ import type {
   Show,
   ShowMetadataPatch,
   ShowSearchResult,
+  UserDevice,
   WatchlistItem,
   WatchlistMediaType,
   WatchProgress
 } from '../shared/types'
 import type {
   RemoteAccessStatus,
+  RemoteSession,
   ServerCompatibility,
   TailscaleGuestDevice
 } from '../shared/remoteAccess'
@@ -178,10 +181,24 @@ const api = {
       }
     }
   },
+  users: {
+    listDevices: (requestingProfileId: number) =>
+      invoke<UserDevice[]>('users:listDevices', requestingProfileId),
+    createLoginCode: (requestingProfileId: number, profileId: number) =>
+      invoke<LoginCodeResult>('users:createLoginCode', requestingProfileId, profileId),
+    revokeDevice: (requestingProfileId: number, deviceId: number) =>
+      invoke<void>('users:revokeDevice', requestingProfileId, deviceId),
+    setDisabled: (requestingProfileId: number, profileId: number, disabled: boolean) =>
+      invoke<void>('users:setDisabled', requestingProfileId, profileId, disabled)
+  },
   remoteAccess: {
     getStatus: () => invoke<RemoteAccessStatus>('remoteAccess:getStatus'),
     serverCompatibility: () =>
       invoke<ServerCompatibility | null>('remoteAccess:serverCompatibility'),
+    session: () => invoke<RemoteSession | null>('remoteAccess:session'),
+    getRequireLogin: () => invoke<boolean>('remoteAccess:getRequireLogin'),
+    setRequireLogin: (requestingProfileId: number, required: boolean) =>
+      invoke<void>('remoteAccess:setRequireLogin', requestingProfileId, required),
     hasApiToken: () => invoke<boolean>('remoteAccess:hasApiToken'),
     saveApiToken: (token: string) => invoke<boolean>('remoteAccess:saveApiToken', token),
     removeApiToken: () => invoke<void>('remoteAccess:removeApiToken'),

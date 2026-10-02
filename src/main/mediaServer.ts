@@ -46,10 +46,83 @@ import {
   markLibrarySeen
 } from './repository'
 import { probeFile, canDirectPlay } from './ffprobe'
-import type { MediaType, WatchlistMediaType } from '../shared/types'
+import { authenticateDeviceKey, redeemLoginCode, type AuthenticatedDevice } from './auth'
+import { bearerToken, isPublicRemoteRoute } from './authCore'
+import { getSetting } from './db'
+import type { MediaType, Profile, WatchlistMediaType } from '../shared/types'
 
 let server: Server | null = null
+let remoteServer: Server | null = null
 let boundPort = 0
+// Second listener for everything that arrives from other devices: the
+// host's Tailscale sidecar forwards here, never to boundPort. Both listen on
+// loopback only, so the port a request came in on tells local (this
+// machine's own window) apart from remote (a friend's device).
+let remotePort = 0
+
+// local = this machine's own window. device = a remote device that sent a
+// valid device key. legacy = a remote request with no key while "require
+// login" is off (apps from before users existed). anonymous = a remote
+// request to a public route (version check, redeeming a code).
+type RequestAuth =
+  | { kind: 'local' }
+  | ({ kind: 'device' } & AuthenticatedDevice)
+  | { kind: 'legacy' }
+  | { kind: 'anonymous' }
+
+function authOf(res: express.Response): RequestAuth {
+  return res.locals.auth as RequestAuth
+}
+
+export function isRemoteLoginRequired(): boolean {
+  return getSetting('remoteRequireLogin') === '1'
+}
+
+function authenticate(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  if (req.socket.localPort !== remotePort) {
+    res.locals.auth = { kind: 'local' } satisfies RequestAuth
+    next()
+    return
+  }
+  const key = bearerToken(req.headers.authorization)
+  if (key) {
+    const device = authenticateDeviceKey(key)
+    if (!device) {
+      // Revoked, or the user was disabled or deleted — even with "require
+      // login" off, a device that presents a dead key is signed out.
+      res.status(401).json({ error: 'signed-out' })
+      return
+    }
+    res.locals.auth = { kind: 'device', ...device } satisfies RequestAuth
+    next()
+    return
+  }
+  if (isPublicRemoteRoute(req.path)) {
+    res.locals.auth = { kind: 'anonymous' } satisfies RequestAuth
+    next()
+    return
+  }
+  if (isRemoteLoginRequired()) {
+    res.status(401).json({ error: 'login-required' })
+    return
+  }
+  res.locals.auth = { kind: 'legacy' } satisfies RequestAuth
+  next()
+}
+
+// The profile a device is signed in as, or null for local/legacy callers
+// (which keep the pre-users behaviour: any profile, PIN permitting).
+function deviceProfile(res: express.Response): Profile | null {
+  const auth = authOf(res)
+  return auth.kind === 'device' ? auth.profile : null
+}
+
+// Device users act only as themselves; an admin's device may act as anyone
+// the same way the host's own window can (PINs still apply).
+function isRestrictedDevice(res: express.Response): boolean {
+  const profile = deviceProfile(res)
+  return profile !== null && !profile.isAdmin
+}
 
 // child_process.spawn() talks to the real OS, not Electron's patched fs
 // layer — it needs an actual on-disk path. asar-packed paths aren't real
@@ -321,6 +394,13 @@ function hasProfileAccess(profileId: number, pin: string | undefined): boolean {
   return !!pin && verifyProfilePin(profileId, pin)
 }
 
+function canActAsProfile(res: express.Response, profileId: number, pin: string | undefined): boolean {
+  const own = deviceProfile(res)
+  if (own && own.id === profileId) return true
+  if (isRestrictedDevice(res)) return false
+  return hasProfileAccess(profileId, pin)
+}
+
 // Mirrors the same reads/writes exposed over Electron IPC in ipc.ts, so a
 // friend's MartBox install (client mode) can reach this host's catalog and
 // watch history over the tailnet instead of its own empty local DB. Thin
@@ -335,8 +415,45 @@ function registerMetadataApi(app: express.Express): void {
     const info: ServerVersionInfo = { appVersion: APP_VERSION, apiVersion: API_VERSION }
     res.json(info)
   })
-  app.get('/api/profiles', (_req, res) => res.json(listProfiles()))
+  // Redeeming a login code is how a remote device gets its key. Public by
+  // necessity — FailureLimiter in auth.ts throttles guessing.
+  app.post('/api/auth/redeem', json, (req, res) => {
+    const result = redeemLoginCode(
+      String(req.body?.code ?? ''),
+      String(req.body?.deviceName ?? ''),
+      typeof req.body?.tailscaleAddr === 'string' ? req.body.tailscaleAddr : null
+    )
+    if (!result.ok) {
+      res.status(result.reason === 'locked' ? 429 : 400).json({
+        error: result.reason,
+        retryAfterMs: result.retryAfterMs
+      })
+      return
+    }
+    res.json({ deviceKey: result.deviceKey, profile: result.profile })
+  })
+  app.get('/api/auth/me', (_req, res) => {
+    const auth = authOf(res)
+    res.json({
+      kind: auth.kind,
+      profile: auth.kind === 'device' ? auth.profile : null,
+      device: auth.kind === 'device' ? auth.device : null,
+      loginRequired: isRemoteLoginRequired()
+    })
+  })
+
+  // A signed-in friend only sees (and can only pick) their own profile.
+  app.get('/api/profiles', (_req, res) => {
+    const own = deviceProfile(res)
+    res.json(own && !own.isAdmin ? listProfiles().filter((p) => p.id === own.id) : listProfiles())
+  })
+  // Users are created by the admin (Settings → Users on the host), not by
+  // whoever is connected.
   app.post('/api/profiles', json, (req, res) => {
+    if (isRestrictedDevice(res)) {
+      res.status(403).json({ error: 'Only the server admin can add users' })
+      return
+    }
     res.json(createProfile(req.body.name, req.body.avatarId))
   })
   // Anyone who can reach this port at all (any tailnet member, once invited)
@@ -349,6 +466,10 @@ function registerMetadataApi(app: express.Express): void {
   // directly against the API, bypassing that UI.)
   app.patch('/api/profiles/:id', json, (req, res) => {
     const id = parseInt(req.params.id, 10)
+    if (isRestrictedDevice(res)) {
+      res.status(403).json({ error: 'Only the server admin can rename users' })
+      return
+    }
     if (listProfiles().find((p) => p.id === id)?.isAdmin) {
       res.status(403).json({ error: 'Cannot rename the admin profile remotely' })
       return
@@ -358,6 +479,10 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.delete('/api/profiles/:id', (req, res) => {
     const id = parseInt(req.params.id, 10)
+    if (isRestrictedDevice(res)) {
+      res.status(403).json({ error: 'Only the server admin can remove users' })
+      return
+    }
     if (listProfiles().find((p) => p.id === id)?.isAdmin) {
       res.status(403).json({ error: 'Cannot delete the admin profile remotely' })
       return
@@ -376,7 +501,8 @@ function registerMetadataApi(app: express.Express): void {
   // reachable directly, bypassing that check entirely.
   app.post('/api/profiles/:id/pin', json, (req, res) => {
     const targetId = parseInt(req.params.id, 10)
-    const requestingProfileId = req.body.requestingProfileId as number
+    // A signed-in device is that user — it can't claim to be someone else.
+    const requestingProfileId = deviceProfile(res)?.id ?? (req.body.requestingProfileId as number)
     const requester = listProfiles().find((p) => p.id === requestingProfileId)
     if (!requester) {
       res.status(400).json({ error: 'Unknown profile' })
@@ -406,6 +532,10 @@ function registerMetadataApi(app: express.Express): void {
   )
   app.get('/api/shows/:id/nextEpisode', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
+      res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
+      return
+    }
     res.json(getNextEpisodeToWatch(profileId, parseInt(req.params.id, 10)))
   })
   app.get('/api/episodes/:id', (req, res) => res.json(getEpisode(parseInt(req.params.id, 10))))
@@ -414,7 +544,7 @@ function registerMetadataApi(app: express.Express): void {
     const profileId = parseInt(req.query.profileId as string, 10)
     const mediaType = req.query.mediaType as MediaType
     const mediaId = parseInt(req.query.mediaId as string, 10)
-    if (!hasProfileAccess(profileId, req.query.pin as string | undefined)) {
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -422,7 +552,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.post('/api/progress', json, (req, res) => {
     const { profileId, mediaType, mediaId, positionSeconds, durationSeconds, pin } = req.body
-    if (!hasProfileAccess(profileId, pin)) {
+    if (!canActAsProfile(res, profileId, pin)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -431,7 +561,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.post('/api/progress/watched', json, (req, res) => {
     const { profileId, mediaType, mediaId, watched, pin } = req.body
-    if (!hasProfileAccess(profileId, pin)) {
+    if (!canActAsProfile(res, profileId, pin)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -441,7 +571,7 @@ function registerMetadataApi(app: express.Express): void {
 
   app.get('/api/continueWatching', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
-    if (!hasProfileAccess(profileId, req.query.pin as string | undefined)) {
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -456,11 +586,17 @@ function registerMetadataApi(app: express.Express): void {
     app.get('/api/iptv/channels', (_req, res) => res.json(listIptvChannels()))
   }
 
-  app.get('/api/activity', (_req, res) => res.json(getAllActivity()))
+  app.get('/api/activity', (_req, res) => {
+    if (isRestrictedDevice(res)) {
+      res.status(403).json({ error: 'Activity is only visible to the server admin' })
+      return
+    }
+    res.json(getAllActivity())
+  })
 
   app.get('/api/watchlist', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
-    if (!hasProfileAccess(profileId, req.query.pin as string | undefined)) {
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -468,7 +604,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.get('/api/watchlist/has', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
-    if (!hasProfileAccess(profileId, req.query.pin as string | undefined)) {
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -478,7 +614,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.post('/api/watchlist', json, (req, res) => {
     const { profileId, mediaType, mediaId, pin } = req.body
-    if (!hasProfileAccess(profileId, pin)) {
+    if (!canActAsProfile(res, profileId, pin)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -487,7 +623,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.post('/api/watchlist/remove', json, (req, res) => {
     const { profileId, mediaType, mediaId, pin } = req.body
-    if (!hasProfileAccess(profileId, pin)) {
+    if (!canActAsProfile(res, profileId, pin)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -497,7 +633,7 @@ function registerMetadataApi(app: express.Express): void {
 
   app.get('/api/librarySeenAt', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
-    if (!hasProfileAccess(profileId, req.query.pin as string | undefined)) {
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -505,7 +641,7 @@ function registerMetadataApi(app: express.Express): void {
   })
   app.post('/api/librarySeenAt', json, (req, res) => {
     const { profileId, mediaType, pin } = req.body
-    if (!hasProfileAccess(profileId, pin)) {
+    if (!canActAsProfile(res, profileId, pin)) {
       res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
       return
     }
@@ -652,6 +788,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // content-types (video streams, images) by default, so this only affects
   // the JSON/text API responses, not playback.
   app.use(compression())
+  app.use(authenticate)
 
   registerMetadataApi(app)
 
@@ -771,19 +908,38 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // resolved by the time anyone's actually pressed play).
   void detectHardwareEncoder()
 
-  return new Promise((resolvePort) => {
-    server = app.listen(0, '127.0.0.1', () => {
-      const address = server!.address()
-      boundPort = typeof address === 'object' && address ? address.port : 0
-      resolvePort(boundPort)
+  const listen = (): Promise<{ server: Server; port: number }> =>
+    new Promise((resolveListen) => {
+      const s = app.listen(0, '127.0.0.1', () => {
+        const address = s.address()
+        resolveListen({ server: s, port: typeof address === 'object' && address ? address.port : 0 })
+      })
     })
-  })
+
+  return (async () => {
+    const local = await listen()
+    const remote = await listen()
+    server = local.server
+    boundPort = local.port
+    remoteServer = remote.server
+    remotePort = remote.port
+    return boundPort
+  })()
 }
 
+// For this machine's own window and the renderer — never hand this to the
+// Tailscale sidecar.
 export function getMediaServerPort(): number {
   return boundPort
 }
 
+// What the host's Tailscale sidecar forwards to: every request here goes
+// through the login check.
+export function getMediaServerRemotePort(): number {
+  return remotePort
+}
+
 export function stopMediaServer(): void {
   server?.close()
+  remoteServer?.close()
 }

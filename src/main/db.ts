@@ -342,6 +342,42 @@ db.exec(`
   );
 `)
 
+// Server-local users (remote access Phase 1): a login code is minted by the
+// admin for one profile and redeemed once; redeeming creates a device row
+// whose key authenticates every later request. Only hashes are stored.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS login_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    tailscale_addr TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_devices_profile ON devices(profile_id);
+  CREATE INDEX IF NOT EXISTS idx_login_codes_profile ON login_codes(profile_id);
+`)
+
+function migrateProfilesForDisabled(): void {
+  const cols = db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'disabled')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0')
+  }
+}
+
+migrateProfilesForDisabled()
+
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
     | { value: string }

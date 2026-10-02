@@ -26,8 +26,19 @@ import {
   mintHostKey,
   mintGuestKey,
   listGuestDevices,
-  revokeGuestDevice
+  revokeGuestDevice,
+  revokeGuestDevicesByAddr
 } from './tailscaleApi'
+import QRCode from 'qrcode'
+import {
+  createLoginCode,
+  deviceAddrsForProfile,
+  listDevices,
+  revokeDevice,
+  setUserDisabled
+} from './auth'
+import { looksLikeLoginCode } from './authCore'
+import { handleClientStatus, redeemLoginCode, setPendingLoginCode } from './clientSession'
 import { scanAndMatchLibrary } from './library'
 import {
   checkForUpdatesNow,
@@ -37,7 +48,7 @@ import {
 } from './autoUpdate'
 import { verifyChannels, isHealthCheckRunning } from './iptvHealth'
 import { refreshIptv } from './iptv'
-import { getMediaServerPort } from './mediaServer'
+import { getMediaServerPort, getMediaServerRemotePort, isRemoteLoginRequired } from './mediaServer'
 import {
   startSidecar,
   stopSidecar,
@@ -48,11 +59,13 @@ import {
   API_VERSION,
   TSNET_FIXED_PORT,
   type InviteCode,
+  type InviteCodeV2,
   type RemoteAccessMode,
   type RemoteAccessStatus,
   type ServerCompatibility
 } from '../shared/remoteAccess'
 import type {
+  LoginCodeResult,
   MediaType,
   MovieMetadataPatch,
   ShowMetadataPatch,
@@ -216,7 +229,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('profiles:rename', (_e, id: number, name: string) =>
     dataSource().renameProfile(id, name)
   )
-  ipcMain.handle('profiles:remove', (_e, id: number) => dataSource().deleteProfile(id))
+  ipcMain.handle('profiles:remove', async (_e, id: number) => {
+    // Deleting a user on the host cascades to their devices; take their
+    // tailnet devices with them so a deleted friend can't still reach the
+    // server.
+    const addrs = getSetting('remoteAccessMode') === 'client' ? [] : deviceAddrsForProfile(id)
+    await dataSource().deleteProfile(id)
+    await revokeGuestDevicesByAddr(addrs).catch((err) => logError('revokeGuestDevicesByAddr', err))
+  })
 
   // The PIN itself always has to be checked against the host's real data —
   // but "always call repository.ts directly" (the previous approach) meant
@@ -446,7 +466,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     startSidecar({
       mode: 'host',
       authKey,
-      forwardTo: `127.0.0.1:${getMediaServerPort()}`,
+      forwardTo: `127.0.0.1:${getMediaServerRemotePort()}`,
       onStatus: (status) => {
         if (status.tailscaleAddr) setSetting('remoteAccessHostAddr', status.tailscaleAddr)
         onStatus(status)
@@ -468,16 +488,113 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('remoteAccess:listGuests', () => listGuestDevices())
   ipcMain.handle('remoteAccess:revokeGuest', (_e, deviceId: string) => revokeGuestDevice(deviceId))
 
-  ipcMain.handle('remoteAccess:connectClient', (_e, code: string) => {
-    const invite = JSON.parse(Buffer.from(code, 'base64').toString('utf8')) as InviteCode
+  const onClientStatus = (status: RemoteAccessStatus): void => {
+    onStatus(status)
+    handleClientStatus(status).then((error) => {
+      if (error) onStatus({ status: 'error', message: error })
+    })
+  }
+
+  // Accepts a full invite (v1: Tailscale only; v2: Tailscale + login code)
+  // or, once already connected, a bare login code to sign this device in.
+  ipcMain.handle('remoteAccess:connectClient', async (_e, code: string) => {
+    const trimmed = code.trim()
+    if (looksLikeLoginCode(trimmed)) {
+      if (getSetting('remoteAccessMode') !== 'client' || !getSidecarLocalPort()) {
+        throw new Error('Paste the full invite first — a login code on its own only works once connected.')
+      }
+      await redeemLoginCode(trimmed)
+      return
+    }
+    let invite: InviteCode | InviteCodeV2
+    try {
+      invite = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'))
+    } catch {
+      throw new Error("That doesn't look like a MartBox invite or login code.")
+    }
+    const tailscale = invite.v === 2 ? invite.tailscale : invite
+    if (!tailscale?.authKey || !tailscale.hostAddr) {
+      throw new Error("That doesn't look like a MartBox invite or login code.")
+    }
+    if (invite.v === 2) setPendingLoginCode(invite.loginCode)
     setSetting('remoteAccessMode', 'client')
-    setSetting('remoteAccessHostAddr', invite.hostAddr)
+    setSetting('remoteAccessHostAddr', tailscale.hostAddr)
     startSidecar({
       mode: 'client',
-      authKey: invite.authKey,
-      hostAddr: `${invite.hostAddr}:${invite.port}`,
-      onStatus
+      authKey: tailscale.authKey,
+      hostAddr: `${tailscale.hostAddr}:${tailscale.port}`,
+      onStatus: onClientStatus
     })
+  })
+
+  ipcMain.handle('remoteAccess:session', () =>
+    getSetting('remoteAccessMode') === 'client' ? remoteClient.getSession() : null
+  )
+
+  // --- Users (host only, admin only): login codes, devices, disabling ---
+
+  const requireHostAdmin = (requestingProfileId: number): void => {
+    if (getSetting('remoteAccessMode') === 'client') {
+      throw new Error('Users are managed on the server.')
+    }
+    const requester = repository.listProfiles().find((p) => p.id === requestingProfileId)
+    if (!requester?.isAdmin) throw new Error('Only the admin can manage users')
+  }
+
+  ipcMain.handle('users:listDevices', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    return listDevices()
+  })
+
+  ipcMain.handle(
+    'users:createLoginCode',
+    async (_e, requestingProfileId: number, profileId: number): Promise<LoginCodeResult> => {
+      requireHostAdmin(requestingProfileId)
+      const { loginCode, expiresAt } = createLoginCode(profileId)
+      // A full invite also lets a brand-new device join the tailnet — only
+      // possible while sharing over Tailscale with an API token saved.
+      let invite: string | null = null
+      const hostAddr = getSetting('remoteAccessHostAddr')
+      if (
+        getSetting('remoteAccessMode') === 'host' &&
+        hostAddr &&
+        encryptedGetSetting('tailscaleApiToken') !== null
+      ) {
+        const admin = repository.listProfiles().find((p) => p.isAdmin)
+        const v2: InviteCodeV2 = {
+          v: 2,
+          name: admin ? `${admin.name}'s MartBox` : 'MartBox',
+          loginCode,
+          tailscale: { authKey: await mintGuestKey(), hostAddr, port: TSNET_FIXED_PORT }
+        }
+        invite = Buffer.from(JSON.stringify(v2)).toString('base64')
+      }
+      const inviteQrDataUrl = invite
+        ? await QRCode.toDataURL(invite, { errorCorrectionLevel: 'M', margin: 1, width: 320 })
+        : null
+      return { loginCode, expiresAt, invite, inviteQrDataUrl }
+    }
+  )
+
+  ipcMain.handle('users:revokeDevice', async (_e, requestingProfileId: number, deviceId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const addr = revokeDevice(deviceId)
+    if (addr) await revokeGuestDevicesByAddr([addr]).catch((err) => logError('revokeGuestDevicesByAddr', err))
+  })
+
+  ipcMain.handle(
+    'users:setDisabled',
+    async (_e, requestingProfileId: number, profileId: number, disabled: boolean) => {
+      requireHostAdmin(requestingProfileId)
+      const addrs = setUserDisabled(profileId, disabled)
+      await revokeGuestDevicesByAddr(addrs).catch((err) => logError('revokeGuestDevicesByAddr', err))
+    }
+  )
+
+  ipcMain.handle('remoteAccess:getRequireLogin', () => isRemoteLoginRequired())
+  ipcMain.handle('remoteAccess:setRequireLogin', (_e, requestingProfileId: number, required: boolean) => {
+    requireHostAdmin(requestingProfileId)
+    setSetting('remoteRequireLogin', required ? '1' : '0')
   })
 
   ipcMain.handle('remoteAccess:disable', () => {

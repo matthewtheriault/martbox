@@ -9,6 +9,26 @@ export interface Profile {
   createdAt: string
   isAdmin: boolean
   hasPin: boolean
+  // A disabled user's devices are signed out and can't sign back in.
+  disabled: boolean
+}
+
+// A device signed in as a user by redeeming a login code.
+export interface UserDevice {
+  id: number
+  profileId: number
+  name: string
+  createdAt: string
+  lastSeenAt: string | null
+}
+
+export interface LoginCodeResult {
+  loginCode: string
+  expiresAt: string
+  // Full invite (Tailscale key + host + login code) for a brand-new device;
+  // null when the host isn't sharing over Tailscale yet.
+  invite: string | null
+  inviteQrDataUrl: string | null
 }
 
 export interface CastMember {

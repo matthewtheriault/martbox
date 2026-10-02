@@ -1,3 +1,5 @@
+import type { Profile } from './types'
+
 export const TSNET_FIXED_PORT = 47823
 
 // Fixed UDP port the host's sidecar uses for WireGuard/peer-to-peer traffic,
@@ -11,7 +13,9 @@ export const TSNET_UDP_PORT = 41642
 // /api/version so a mismatch shows "update the server" / "update this app"
 // instead of half-working screens. App versions can differ freely as long as
 // this matches.
-export const API_VERSION = 1
+// 2: server-local users — device keys, /api/auth/*, login-checked remote
+// listener.
+export const API_VERSION = 2
 
 export interface ServerVersionInfo {
   appVersion: string
@@ -55,8 +59,26 @@ export interface InviteCode {
   port: number
 }
 
+// v2 adds a one-time login code: the device joins the tailnet with the
+// Tailscale key, then redeems the code for its own device key, signing in
+// as the user the admin made the code for.
+export interface InviteCodeV2 {
+  v: 2
+  name: string
+  loginCode: string
+  tailscale: { authKey: string; hostAddr: string; port: number }
+}
+
+// What /api/auth/me reports about the calling device.
+export interface RemoteSession {
+  kind: 'local' | 'device' | 'legacy' | 'anonymous'
+  profile: Profile | null
+  loginRequired: boolean
+}
+
 export interface TailscaleGuestDevice {
   id: string
   hostname: string
   lastSeen: string | null
+  addresses: string[]
 }

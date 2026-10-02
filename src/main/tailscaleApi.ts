@@ -99,11 +99,34 @@ export async function listGuestDevices(): Promise<TailscaleGuestDevice[]> {
     throw new Error(`Tailscale API error (${res.status}): ${text || res.statusText}`)
   }
   const data = (await res.json()) as {
-    devices: Array<{ id: string; hostname: string; tags?: string[]; lastSeen?: string }>
+    devices: Array<{
+      id: string
+      hostname: string
+      tags?: string[]
+      lastSeen?: string
+      addresses?: string[]
+    }>
   }
   return (data.devices ?? [])
     .filter((d) => (d.tags ?? []).includes('tag:martbox-guest'))
-    .map((d) => ({ id: d.id, hostname: d.hostname, lastSeen: d.lastSeen ?? null }))
+    .map((d) => ({
+      id: d.id,
+      hostname: d.hostname,
+      lastSeen: d.lastSeen ?? null,
+      addresses: d.addresses ?? []
+    }))
+}
+
+// Signing a MartBox user's device out also removes it from the tailnet when
+// the device reported its tailnet address at sign-in. Best-effort: with no
+// API token saved (or the device already gone) there's nothing to remove.
+export async function revokeGuestDevicesByAddr(addrs: string[]): Promise<void> {
+  if (addrs.length === 0 || encryptedGetSetting('tailscaleApiToken') === null) return
+  const wanted = new Set(addrs)
+  const guests = await listGuestDevices()
+  for (const guest of guests) {
+    if (guest.addresses.some((a) => wanted.has(a))) await revokeGuestDevice(guest.id)
+  }
 }
 
 export async function revokeGuestDevice(deviceId: string): Promise<void> {
