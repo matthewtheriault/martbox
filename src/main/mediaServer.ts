@@ -341,19 +341,17 @@ const HLS_ENCODER_ARGS: Record<HardwareEncoder, string[]> = {
 // player and hardware encoder accepts (10-bit HDR sources included).
 const HLS_SCALE_FILTER = ['-vf', "scale=w='min(1920,iw)':h=-2,format=yuv420p"]
 
-async function hlsVideoArgs(filePath: string): Promise<{ args: string[]; copy: boolean }> {
-  const probe = await probeFile(filePath)
-  if (probe.videoCodec === 'h264') return { args: ['-c:v', 'copy'], copy: true }
+// Always encoded (never stream-copied): segments must be cut at exact
+// 4-second boundaries so the VOD playlist's timeline is true, and copying
+// can only cut where the source happens to have keyframes.
+async function hlsVideoArgs(): Promise<string[]> {
   const encoder = await detectHardwareEncoder()
-  return {
-    args: [
-      ...HLS_SCALE_FILTER,
-      ...(encoder
-        ? HLS_ENCODER_ARGS[encoder]
-        : ['-c:v', 'libx264', '-preset', 'faster', '-crf', '21', '-maxrate', '10M', '-bufsize', '16M'])
-    ],
-    copy: false
-  }
+  return [
+    ...HLS_SCALE_FILTER,
+    ...(encoder
+      ? HLS_ENCODER_ARGS[encoder]
+      : ['-c:v', 'libx264', '-preset', 'faster', '-crf', '21', '-maxrate', '10M', '-bufsize', '16M'])
+  ]
 }
 
 export const DEFAULT_HLS_CACHE_DIR = join(tmpdir(), 'martbox-hls')
@@ -808,6 +806,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   registerHlsRoutes(app, {
     ffmpegPath,
     resolveMediaPath,
+    durationSeconds: async (filePath) => (await probeFile(filePath)).durationSeconds,
     videoArgs: hlsVideoArgs,
     ownerOf: (res) => {
       const auth = authOf(res)
