@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
-  IptvHealthSummary,
-  IptvSettingsInfo,
   Library,
   Movie,
   Profile,
@@ -64,13 +62,6 @@ export default function Settings(): JSX.Element {
   const [guestsError, setGuestsError] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
-  const [m3uUrl, setM3uUrl] = useState('')
-  const [epgUrl, setEpgUrl] = useState('')
-  const [iptvInfo, setIptvInfo] = useState<IptvSettingsInfo | null>(null)
-  const [iptvStatus, setIptvStatus] = useState<'idle' | 'refreshing' | 'ok' | 'error'>('idle')
-  const [iptvError, setIptvError] = useState<string | null>(null)
-  const [healthSummary, setHealthSummary] = useState<IptvHealthSummary | null>(null)
-
   const [libraryCounts, setLibraryCounts] = useState<Record<number, number>>({})
   const [unmatchedMovies, setUnmatchedMovies] = useState<Movie[]>([])
   const [unmatchedShows, setUnmatchedShows] = useState<Show[]>([])
@@ -117,33 +108,11 @@ export default function Settings(): JSX.Element {
     })
     window.api.remoteAccess.hasApiToken().then(setHasApiToken)
     window.api.remoteAccess.getStatus().then(setRemoteStatus)
-    if (!window.api.isMasBuild) {
-      window.api.iptv.getSettings().then((info) => {
-        setIptvInfo(info)
-        setM3uUrl(info.m3uUrl ?? '')
-        setEpgUrl(info.epgUrl ?? '')
-        if (info.lastError) {
-          setIptvStatus('error')
-          setIptvError(info.lastError)
-        } else if (info.channelCount > 0) {
-          setIptvStatus('ok')
-        }
-      })
-      window.api.iptv.getHealthSummary().then(setHealthSummary)
-    }
     const unsubscribeScan = window.api.library.onScanProgress((progress) => {
       setScanProgress((prev) => ({ ...prev, [progress.libraryId]: progress }))
       if (progress.phase === 'done') refreshLibraries()
     })
     const unsubscribeRemote = window.api.remoteAccess.onStatus(setRemoteStatus)
-    const unsubscribeHealth = window.api.iptv.onHealthProgress((progress) => {
-      setHealthSummary({
-        total: progress.total,
-        checked: progress.current,
-        dead: progress.dead,
-        running: !progress.done
-      })
-    })
     window.api.updates.getCheckUrl().then((url) => {
       setUpdateCheckUrlInput(url ?? '')
       if (url) runUpdateCheck()
@@ -151,15 +120,9 @@ export default function Settings(): JSX.Element {
     return () => {
       unsubscribeScan()
       unsubscribeRemote()
-      unsubscribeHealth()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const verifyChannelsNow = (): void => {
-    setHealthSummary((prev) => (prev ? { ...prev, running: true } : prev))
-    window.api.iptv.verifyChannels()
-  }
 
   const addProfile = async (): Promise<void> => {
     const trimmed = newProfileName.trim()
@@ -343,19 +306,6 @@ export default function Settings(): JSX.Element {
   const handleModeChange = (value: RemoteAccessMode): void => {
     if (value === 'off') disableRemoteAccess()
     else setRemoteMode(value)
-  }
-
-  const saveAndRefreshIptv = async (): Promise<void> => {
-    setIptvStatus('refreshing')
-    setIptvError(null)
-    const result = await window.api.iptv.refresh(m3uUrl.trim(), epgUrl.trim())
-    if (result.error) {
-      setIptvStatus('error')
-      setIptvError(result.error)
-    } else {
-      setIptvStatus('ok')
-    }
-    window.api.iptv.getSettings().then(setIptvInfo)
   }
 
   return (
@@ -669,70 +619,6 @@ export default function Settings(): JSX.Element {
 
       {remoteMode !== 'client' && !window.api.isMasBuild && (
         <>
-          <section className="settings-section">
-            <h2>Live TV</h2>
-            <p className="settings-hint">
-              Point MartBox at an M3U(8) playlist and (optionally) an XMLTV EPG URL to enable Live
-              TV.
-            </p>
-            <div className="settings-row">
-              <input
-                type="text"
-                placeholder="M3U playlist URL"
-                value={m3uUrl}
-                onChange={(e) => setM3uUrl(e.target.value)}
-              />
-            </div>
-            <div className="settings-row">
-              <input
-                type="text"
-                placeholder="XMLTV EPG URL (optional)"
-                value={epgUrl}
-                onChange={(e) => setEpgUrl(e.target.value)}
-              />
-              <button className="btn-primary" onClick={saveAndRefreshIptv}>
-                Save &amp; Refresh
-              </button>
-            </div>
-            {iptvStatus === 'refreshing' && <p className="settings-hint">Refreshing…</p>}
-            {iptvStatus === 'ok' && iptvInfo && (
-              <p className="settings-status-ok">
-                {iptvInfo.channelCount} channels
-                {iptvInfo.lastRefreshedAt &&
-                  ` — last refreshed ${new Date(iptvInfo.lastRefreshedAt).toLocaleString()}`}
-              </p>
-            )}
-            {iptvStatus === 'error' && <p className="settings-status-error">{iptvError}</p>}
-
-            {iptvInfo && iptvInfo.channelCount > 0 && (
-              <div className="settings-subsection">
-                <h3>Channel Health</h3>
-                <p className="settings-hint">
-                  Public IPTV lists always have some dead links — checking flags them so they're
-                  hidden from the Live TV grid automatically.
-                </p>
-                <div className="settings-row">
-                  <button
-                    className="btn-secondary"
-                    onClick={verifyChannelsNow}
-                    disabled={healthSummary?.running}
-                  >
-                    {healthSummary?.running ? 'Checking…' : 'Verify Channels'}
-                  </button>
-                </div>
-                {healthSummary && (
-                  <p className="settings-hint">
-                    {healthSummary.running
-                      ? `Checked ${healthSummary.checked} of ${healthSummary.total}, ${healthSummary.dead} dead so far…`
-                      : healthSummary.checked > 0
-                        ? `${healthSummary.dead} of ${healthSummary.checked} checked channels are currently unavailable.`
-                        : 'Not checked yet.'}
-                  </p>
-                )}
-              </div>
-            )}
-          </section>
-
           <section className="settings-section">
             <h2>TMDb API Key</h2>
             <p className="settings-hint">
