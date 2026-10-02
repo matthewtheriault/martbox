@@ -378,6 +378,19 @@ function migrateProfilesForDisabled(): void {
 
 migrateProfilesForDisabled()
 
+// Last speed test a signed-in device ran against this host (Settings →
+// Users shows it next to the device).
+function migrateDevicesForSpeed(): void {
+  const cols = db.prepare('PRAGMA table_info(devices)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'speed_mbps')) {
+    db.exec('ALTER TABLE devices ADD COLUMN speed_mbps REAL')
+    db.exec('ALTER TABLE devices ADD COLUMN latency_ms REAL')
+    db.exec('ALTER TABLE devices ADD COLUMN speed_tested_at TEXT')
+  }
+}
+
+migrateDevicesForSpeed()
+
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
     | { value: string }

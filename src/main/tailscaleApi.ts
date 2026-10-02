@@ -1,5 +1,6 @@
 import { encryptedGetSetting } from './db'
 import type { TailscaleGuestDevice } from '../shared/remoteAccess'
+import type { TailnetPolicy } from './tailnetPolicy'
 
 const API_BASE = 'https://api.tailscale.com/api/v2'
 
@@ -138,5 +139,44 @@ export async function revokeGuestDevice(deviceId: string): Promise<void> {
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`Tailscale API error (${res.status}): ${text || res.statusText}`)
+  }
+}
+
+// The tailnet policy file, read as plain JSON (comments stripped) with the
+// ETag needed to write it back only if nobody changed it in between.
+export async function getTailnetPolicy(): Promise<{ policy: TailnetPolicy; etag: string | null }> {
+  const token = requireToken()
+  const res = await fetch(`${API_BASE}/tailnet/-/acl`, {
+    headers: { Authorization: authHeader(token), Accept: 'application/json' }
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Tailscale API error (${res.status}): ${text || res.statusText}`)
+  }
+  return { policy: (await res.json()) as TailnetPolicy, etag: res.headers.get('etag') }
+}
+
+// Tailscale validates the whole file (and runs its "tests") before
+// accepting it; a rejected file changes nothing. If-Match makes the write
+// fail rather than overwrite an edit made since getTailnetPolicy().
+export async function setTailnetPolicy(policy: TailnetPolicy, etag: string | null): Promise<void> {
+  const token = requireToken()
+  const headers: Record<string, string> = {
+    Authorization: authHeader(token),
+    'Content-Type': 'application/json',
+    Accept: 'application/json'
+  }
+  if (etag) headers['If-Match'] = etag
+  const res = await fetch(`${API_BASE}/tailnet/-/acl`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(policy)
+  })
+  if (res.status === 412) {
+    throw new Error('The access rules were changed somewhere else just now. Check again, then retry.')
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Tailscale rejected the access rules (${res.status}): ${text || res.statusText}`)
   }
 }

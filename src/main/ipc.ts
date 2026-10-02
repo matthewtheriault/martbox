@@ -27,8 +27,11 @@ import {
   mintGuestKey,
   listGuestDevices,
   revokeGuestDevice,
-  revokeGuestDevicesByAddr
+  revokeGuestDevicesByAddr,
+  getTailnetPolicy,
+  setTailnetPolicy
 } from './tailscaleApi'
+import { checkPolicy, recommendedPolicy } from './tailnetPolicy'
 import QRCode from 'qrcode'
 import {
   createLoginCode,
@@ -492,8 +495,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     onStatus(status)
     handleClientStatus(status).then((error) => {
       if (error) onStatus({ status: 'error', message: error })
+      else if (status.status === 'connected') remoteClient.scheduleAutoSpeedTest()
     })
   }
+
+  // A full test (up to 64 MB / 6 s) when the user asks for one.
+  ipcMain.handle('remoteAccess:speedTest', () => {
+    if (getSetting('remoteAccessMode') !== 'client') throw new Error('Not connected to a server')
+    return remoteClient.runSpeedTest(64 * 1024 * 1024, 6000)
+  })
 
   // Accepts a full invite (v1: Tailscale only; v2: Tailscale + login code)
   // or, once already connected, a bare login code to sign this device in.
@@ -595,6 +605,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('remoteAccess:setRequireLogin', (_e, requestingProfileId: number, required: boolean) => {
     requireHostAdmin(requestingProfileId)
     setSetting('remoteRequireLogin', required ? '1' : '0')
+  })
+
+  // --- Tailnet access rules (who can reach what over Tailscale) ---
+
+  ipcMain.handle('remoteAccess:checkPolicy', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const { policy } = await getTailnetPolicy()
+    return checkPolicy(policy)
+  })
+
+  ipcMain.handle('remoteAccess:lockDownPolicy', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const { policy, etag } = await getTailnetPolicy()
+    await setTailnetPolicy(recommendedPolicy(policy), etag)
+    return checkPolicy((await getTailnetPolicy()).policy)
   })
 
   ipcMain.handle('remoteAccess:disable', () => {

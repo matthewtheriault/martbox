@@ -82,3 +82,17 @@ export interface TailscaleGuestDevice {
   lastSeen: string | null
   addresses: string[]
 }
+
+// Result of checking the tailnet policy file (tailnetPolicy.ts).
+export interface TailnetPolicyCheck {
+  // An allow-everything rule is present.
+  allowAll: boolean
+  // Friends' devices may reach the MartBox port on the host.
+  guestGrant: boolean
+  // Both MartBox tags have owners (needed to create invites).
+  tagOwners: boolean
+  // Other rules that let friends' devices reach something — reported, not
+  // removed automatically.
+  extraGuestRules: number
+  lockedDown: boolean
+}
