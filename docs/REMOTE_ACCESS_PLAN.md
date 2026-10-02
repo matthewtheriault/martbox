@@ -43,22 +43,27 @@ brings their own domain + reverse proxy.)
 | UPnP port mapping | Electron main process maps a fixed public port via UPnP/NAT-PMP (Node lib, e.g. `nat-upnp` / `nat-pmp`), with manual-forward fallback and a status readout in Settings |
 | plex.tv reachability check | Settings → Remote Access "Test from outside" button (needs a tiny external checker — or reuse a public "is port open" API) |
 | `plex.direct` certs | Free dynamic-DNS hostname (DuckDNS or similar) + automatic Let's Encrypt cert obtained/renewed by the app (ACME DNS-01 via the DDNS provider's API, so port 80 isn't needed) |
-| plex.tv accounts / sharing | **No central accounts.** Extend the existing invite code (`InviteCode` in `src/shared/remoteAccess.ts`) to carry the public URL + a per-friend access token, alongside the existing Tailscale fields |
+| plex.tv accounts / sharing | **No central accounts, no self sign-up.** Jellyfin/Emby-style server-local users: the host admin creates each user, which mints a one-time login code (extends `InviteCode` in `src/shared/remoteAccess.ts`) carrying the public URL + the code, alongside the existing Tailscale fields. Redeeming it gives the device its own revocable key |
 | Connection racing | Clients race LAN URL, public HTTPS URL, and Tailscale; first healthy one wins; re-race on network change |
 | Plex Relay | Existing Tailscale/tsnet path, demoted to fallback |
 | Remote quality | Hardware transcoding + a few fixed bitrate ladders (see Phase 4) |
 
-Invite code v2 sketch:
+Login code (invite v2) sketch:
 
 ```ts
 interface InviteCodeV2 {
   v: 2
   name: string            // server display name
   publicUrl?: string      // https://martbox-xyz.duckdns.org:47824
-  token: string           // per-friend access token (revocable)
+  loginCode: string       // one-time, expires after first use or 24–48 h
   tailscale?: { authKey: string; hostAddr: string; port: number } // fallback
 }
 ```
+
+The client redeems `loginCode` once (`POST /api/auth/redeem` with a device
+name) and gets back a long-lived **device key** for that user, stored in the
+Keychain (Apple) / Keystore (Android) / `safeStorage` (Electron). Every later
+request sends the device key; the login code is useless after redemption.
 
 ## Phases
 
@@ -73,12 +78,23 @@ interface InviteCodeV2 {
   (UDP 41641-style). Often converts relayed connections into direct ones with
   almost no code change.
 
-### Phase 1 — Auth on the media server (prerequisite for anything public)
+### Phase 1 — Users & auth on the media server (prerequisite for anything public)
 - The Express server in `src/main/mediaServer.ts` currently has **no auth**;
   it relies on loopback/tailnet isolation. Before exposing it:
-  - Per-friend access tokens stored in SQLite (create / list / revoke in
-    Settings), hashed at rest.
-  - Middleware checking `Authorization: Bearer` on all `/api/*`, `/stream/*`,
+  - **Server-local users** (Jellyfin/Emby model, no sign-up, no central
+    service — free). Settings → Users: admin creates a user (name, avatar,
+    optional limits: remote access on/off, max content rating), which
+    generates a **one-time login code** + QR. The host's own user is the
+    admin.
+  - Redeeming a login code creates a **device key** for that user (SQLite,
+    hashed at rest). Admin can see each user's devices, sign one out,
+    disable a user, or issue a new login code (e.g. new phone).
+  - **Per-user data:** watch progress, Continue Watching, watchlist (and
+    later music history, game saves). Existing single-user rows migrate to
+    the admin user.
+  - Optional **profile PIN** for shared devices (e.g. a living-room Apple TV
+    with a profile picker).
+  - Middleware checking `Authorization: Bearer <device key>` on all `/api/*`, `/stream/*`,
     `/probe/*`, `/image`, `/live/*` routes.
   - Players can't always set headers on media requests (AVPlayer, `<video>`
     src), so also accept a short-lived signed query param on media URLs.
@@ -98,11 +114,13 @@ interface InviteCodeV2 {
 - Settings → Remote Access shows: mapping status, public URL, cert expiry,
   "Test from outside" result.
 
-### Phase 3 — Clients: invite v2 + connection racing
-- Desktop client mode (`src/main/remoteClient.ts`): accept v2 invites, race
-  public URL vs Tailscale, send the token on every request.
+### Phase 3 — Clients: login codes + connection racing
+- Sign-in screen on every client: enter or scan a login code, redeem it,
+  store the device key; profile picker if the device has several users.
+- Desktop client mode (`src/main/remoteClient.ts`): accept v2 codes, race
+  public URL vs Tailscale, send the device key on every request.
 - iOS/tvOS clients (separate repos): `ServerConfig` /
-  `APIClient` learn the public URL + token; only start `TsnetClient` if the
+  `APIClient` learn the public URL + device key; only start `TsnetClient` if the
   public URL fails. This should also fix the background/foreground tunnel
   drops on iOS for most users.
 - Keep v1 invite codes working during transition.

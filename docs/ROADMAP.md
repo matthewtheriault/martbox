@@ -14,6 +14,14 @@ See also `REMOTE_ACCESS_PLAN.md` in this folder.
    GameCube (Android + desktop only). PS2 skipped for now.
 3. **Remote access:** make the host directly reachable first (UPnP / port
    forward, free). Oracle Always Free relay only if the host is behind CGNAT.
+4. **Users: Jellyfin/Emby model.** No public sign-up and no central account
+   service. The host admin creates each user, which generates a one-time
+   login code/QR; the friend signs in with it and the device keeps its own
+   revocable key. Per-user watch history and profiles ship with remote
+   access (Phase 1), not with the redesign.
+5. **Redesign last:** the vibrant/modern UI overhaul (Phase 8) starts after
+   Phases 1–7 are built.
+6. **Native Mac app:** deferred — decide later (see Open questions).
 
 ## Goals
 - Everything **free to run** — no paid relays, servers, or subscriptions.
@@ -67,8 +75,8 @@ cellular/CGNAT/hotel Wi-Fi are fine once the host is.
 4. **Adaptive bitrate + hardware transcoding** (jellyfin-ffmpeg, encoder
    probing) so slow paths degrade quality instead of buffering. Host upload
    bandwidth is the hard ceiling.
-5. **Seamless UX:** Ampchor-style pairing (short code / QR shown on host,
-   per-device keys in Keychain/Keystore), clients race LAN → direct →
+5. **Seamless UX:** admin-created users sign in with a one-time login code /
+   QR from host Settings → Users (per-device keys in Keychain/Keystore), clients race LAN → direct →
    relayed paths automatically, auto-reconnect, one plain-English status line
    in host Settings.
 
@@ -115,16 +123,46 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 
 | # | Phase | Clients | Size |
 |---|---|---|---|
-| 1 | Remote access v2 (free path above + pairing + ABR + HW transcode) | all | 4–6 wks |
+| 1 | Remote access v2 (free path above + users/login codes/per-user history + ABR + HW transcode) | all | 5–7 wks |
 | 2 | Android + Fire TV app to parity with iOS for movies/TV | Android, Fire TV | 8–12 wks |
 | 3 | Music (lossless, gapless, background/lock-screen, CarPlay later) | all | 4–8 wks |
 | 4 | Retro games | all | 8–12 wks |
 | 5 | Audiobooks & podcasts | phones/desktop (TV optional) | 3–5 wks |
 | 6 | Ebooks & comics readers | phones/tablets/desktop (not TV) | 3–5 wks |
 | 7 | CD ripping (FLAC/ALAC) | desktop host | 1–3 wks |
+| 8 | Redesign: vibrant, sleek modern UI + minor features (below) | all | 4–8 wks |
 
-**Total: ~8–12 months.** The cost multiplier is that each media type ships
+**Total: ~9–14 months.** The cost multiplier is that each media type ships
 on 5–6 clients.
+
+## Redesign (Phase 8, after everything else)
+
+Draft direction — to be refined before starting.
+
+**Look & feel**
+- Dark near-black base with **vibrant accent gradients**, one per media
+  type (e.g. movies/TV magenta→orange, music cyan→blue, games lime→green,
+  books amber).
+- **Artwork-driven colour:** backgrounds and buttons tint from the current
+  poster / album cover.
+- Frosted-glass panels, large edge-to-edge hero artwork, rounded cards,
+  smooth motion and transitions.
+- Light mode + an accent-colour picker in Settings.
+- One shared set of **design tokens** (colour, type, spacing, radius)
+  implemented in Electron (CSS), SwiftUI and Compose so all six platforms
+  look like one product.
+
+**Minor features to ship with it**
+- Continue Watching / Up Next synced across devices (data exists from
+  Phase 1; this is the polished UI).
+- Skip intro/credits, sleep timer.
+- Profile avatars and profile-picker design, custom collections.
+- Keyboard-shortcut search / command palette and more shortcuts on desktop.
+- "Year in review" stats screen.
+- Trailers on movie/show pages.
+
+Note: screens built in Phases 2–7 will be restyled here. Agreeing the design
+tokens before Phase 2 would reduce that rework (optional).
 
 ## Open questions
 - Is the host behind CGNAT? (Decides whether Oracle-free relay is required.)
