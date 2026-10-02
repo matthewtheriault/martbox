@@ -166,8 +166,11 @@ export function getContinueWatching(
   return request(`/api/continueWatching?profileId=${profileId}${pinParam}`)
 }
 
-export function listIptvChannels(): Promise<IptvChannel[]> {
-  return request('/api/iptv/channels')
+// Live TV was removed (and the host no longer serves /api/iptv or the /live
+// proxy). Kept so ipc.ts's dataSource() still type-checks against both
+// modules.
+export async function listIptvChannels(): Promise<IptvChannel[]> {
+  return []
 }
 
 export function getAllActivity(): Promise<ActivityItem[]> {
