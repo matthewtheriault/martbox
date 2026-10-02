@@ -24,12 +24,6 @@ const icons = {
       <path d="M8 21h8M12 18v3" />
     </>
   ),
-  liveTv: (
-    <>
-      <circle cx="12" cy="12" r="2.2" />
-      <path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.5 9.5 0 0 0 0 13M18.5 5.5a9.5 9.5 0 0 1 0 13" />
-    </>
-  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3.2" />
@@ -98,12 +92,6 @@ export default function Sidebar(): JSX.Element {
           <Icon name="tv" />
           <span>TV Shows</span>
         </NavLink>
-        {!window.api.isMasBuild && (
-          <NavLink to="/live" className="sidebar-link">
-            <Icon name="liveTv" />
-            <span>Live TV</span>
-          </NavLink>
-        )}
         {activeProfile.isAdmin && (
           <NavLink to="/activity" className="sidebar-link">
             <Icon name="activity" />

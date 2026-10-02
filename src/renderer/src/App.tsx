@@ -10,8 +10,6 @@ const TvShows = lazy(() => import('./pages/TvShows'))
 const MovieDetail = lazy(() => import('./pages/MovieDetail'))
 const ShowDetail = lazy(() => import('./pages/ShowDetail'))
 const Player = lazy(() => import('./pages/Player'))
-const LiveTv = lazy(() => import('./pages/LiveTv'))
-const LiveChannelPlayer = lazy(() => import('./pages/LiveChannelPlayer'))
 const Activity = lazy(() => import('./pages/Activity'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Search = lazy(() => import('./pages/Search'))
@@ -34,12 +32,6 @@ export default function App(): JSX.Element {
                 <Route path="/movie/:id" element={<MovieDetail />} />
                 <Route path="/show/:id" element={<ShowDetail />} />
                 <Route path="/play/:mediaType/:id" element={<Player />} />
-                {!window.api.isMasBuild && (
-                  <>
-                    <Route path="/live" element={<LiveTv />} />
-                    <Route path="/play/live/:channelId" element={<LiveChannelPlayer />} />
-                  </>
-                )}
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/search" element={<Search />} />
