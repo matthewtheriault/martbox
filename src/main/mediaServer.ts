@@ -11,7 +11,6 @@ import {
 } from 'fs'
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
-import { Readable } from 'stream'
 import { app } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
 // @ts-ignore - no types shipped
@@ -35,8 +34,6 @@ import {
   setWatched,
   getContinueWatching,
   getNextEpisodeToWatch,
-  listIptvChannels,
-  getIptvChannelStreamUrl,
   getAllActivity,
   listWatchlist,
   addToWatchlist,
@@ -46,8 +43,15 @@ import {
   markLibrarySeen
 } from './repository'
 import { probeFile, canDirectPlay } from './ffprobe'
-import { authenticateDeviceKey, redeemLoginCode, type AuthenticatedDevice } from './auth'
-import { bearerToken, isPublicRemoteRoute } from './authCore'
+import {
+  authenticateDeviceKey,
+  deviceAddrsForProfile,
+  redeemLoginCode,
+  type AuthenticatedDevice
+} from './auth'
+import { FailureLimiter, bearerToken, isPublicRemoteRoute } from './authCore'
+import { revokeGuestDevicesByAddr } from './tailscaleApi'
+import { logError } from './errorLog'
 import { getSetting } from './db'
 import type { MediaType, Profile, WatchlistMediaType } from '../shared/types'
 
@@ -387,18 +391,42 @@ async function streamTranscode(
 // require proving it on every call, since there's no cheaper way to bind an
 // anonymous HTTP request to "yes, this caller really is that profile"
 // without building real sessions.
-function hasProfileAccess(profileId: number, pin: string | undefined): boolean {
+// A 4-digit PIN is only 10,000 guesses — remote callers get 5 wrong tries
+// per profile, then that profile's PIN is locked for 15 minutes. The host's
+// own window is never limited, so the owner can't be locked out of their
+// own server.
+const pinLimiters = new Map<number, FailureLimiter>()
+
+function checkPin(res: express.Response, profileId: number, pin: string): boolean {
+  if (authOf(res).kind === 'local') return verifyProfilePin(profileId, pin)
+  let limiter = pinLimiters.get(profileId)
+  if (!limiter) {
+    limiter = new FailureLimiter(5, 5 * 60 * 1000, 15 * 60 * 1000)
+    pinLimiters.set(profileId, limiter)
+  }
+  if (limiter.isLocked()) return false
+  const ok = verifyProfilePin(profileId, pin)
+  if (ok) limiter.recordSuccess()
+  else limiter.recordFailure()
+  return ok
+}
+
+function hasProfileAccess(
+  res: express.Response,
+  profileId: number,
+  pin: string | undefined
+): boolean {
   const profile = listProfiles().find((p) => p.id === profileId)
   if (!profile) return false
   if (!profile.hasPin) return true
-  return !!pin && verifyProfilePin(profileId, pin)
+  return !!pin && checkPin(res, profileId, pin)
 }
 
 function canActAsProfile(res: express.Response, profileId: number, pin: string | undefined): boolean {
   const own = deviceProfile(res)
   if (own && own.id === profileId) return true
   if (isRestrictedDevice(res)) return false
-  return hasProfileAccess(profileId, pin)
+  return hasProfileAccess(res, profileId, pin)
 }
 
 // Mirrors the same reads/writes exposed over Electron IPC in ipc.ts, so a
@@ -487,14 +515,17 @@ function registerMetadataApi(app: express.Express): void {
       res.status(403).json({ error: 'Cannot delete the admin profile remotely' })
       return
     }
+    // Same as deleting on the host itself: the user's tailnet devices go too.
+    const addrs = deviceAddrsForProfile(id)
     deleteProfile(id)
+    revokeGuestDevicesByAddr(addrs).catch((err) => logError('revokeGuestDevicesByAddr', err))
     res.json({ ok: true })
   })
 
   // Attempting a PIN is inherently permission-less (it's the login step
   // itself) — no requester identity needed, just the guess and the answer.
   app.post('/api/profiles/:id/verify-pin', json, (req, res) => {
-    res.json({ ok: verifyProfilePin(parseInt(req.params.id, 10), req.body.pin ?? '') })
+    res.json({ ok: checkPin(res, parseInt(req.params.id, 10), String(req.body.pin ?? '')) })
   })
   // Changing a PIN is different — same self-or-admin rule as the local IPC
   // path (profiles:setPin), re-enforced here since this endpoint is
@@ -578,14 +609,6 @@ function registerMetadataApi(app: express.Express): void {
     res.json(getContinueWatching(profileId))
   })
 
-  // Live TV/IPTV is hidden on Mac App Store builds only (Guideline 5.2.3 —
-  // Apple treats free-text M3U playlist ingestion as a piracy vector; the
-  // direct-download .dmg build keeps this feature unchanged). process.mas
-  // is set automatically by Electron, not a hand-maintained flag.
-  if (!process.mas) {
-    app.get('/api/iptv/channels', (_req, res) => res.json(listIptvChannels()))
-  }
-
   app.get('/api/activity', (_req, res) => {
     if (isRestrictedDevice(res)) {
       res.status(403).json({ error: 'Activity is only visible to the server admin' })
@@ -650,141 +673,12 @@ function registerMetadataApi(app: express.Express): void {
   })
 }
 
-const PASSTHROUGH_HEADERS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']
-
-function absolutize(base: string, ref: string): string {
-  return new URL(ref.trim(), base).toString()
-}
-
-// Rewrites every non-#-prefixed line (segment/sub-playlist URL) plus URI="..."
-// attributes inside #EXT-X-KEY/#EXT-X-MEDIA tags (AES-128 key fetches and
-// alt audio/subtitle playlists must also transit our proxy — the browser
-// has no direct route to the origin IPTV host). Master playlist -> media
-// playlist -> segments all flow back through proxyLiveUrl via these
-// rewritten URLs, so there's no need to special-case each HLS layer here.
-function rewriteManifest(text: string, manifestUrl: string, channelId: string): string {
-  const proxied = (abs: string): string => `/live/${channelId}/segment?u=${encodeURIComponent(abs)}`
-  return text
-    .split('\n')
-    .map((line) => {
-      const trimmed = line.trim()
-      if (!trimmed) return line
-      if (trimmed.startsWith('#EXT-X-KEY') || trimmed.startsWith('#EXT-X-MEDIA')) {
-        return trimmed.replace(/URI="([^"]+)"/, (_m, uri) => `URI="${proxied(absolutize(manifestUrl, uri))}"`)
-      }
-      if (trimmed.startsWith('#')) return line
-      return proxied(absolutize(manifestUrl, trimmed))
-    })
-    .join('\n')
-}
-
-// /live/:channelId/segment forwards whatever "u" it's given (that's the
-// point — HLS manifests reference their own CDN URLs, rewritten to transit
-// this proxy) to a plain server-side fetch(). Without a check, anyone who
-// can reach this port could use it as an open relay to probe the host's own
-// loopback services or its local network — literal private/loopback/
-// link-local hosts are the obvious, practical case to block; a legitimate
-// IPTV segment is never going to live at 127.0.0.1 or 192.168.x.x. This
-// doesn't defend against DNS rebinding (a hostname that resolves to a
-// private IP only at fetch time) — narrower threat, not addressed here.
-function isPrivateOrLoopbackHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (h === 'localhost' || h === '0.0.0.0') return true
-  if (/^127\./.test(h)) return true
-  if (/^10\./.test(h)) return true
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
-  if (/^192\.168\./.test(h)) return true
-  if (/^169\.254\./.test(h)) return true
-  if (h === '::1') return true
-  if (/^f[cd][0-9a-f]{2}:/i.test(h)) return true
-  if (/^fe80:/i.test(h)) return true
-  return false
-}
-
-async function proxyLiveUrl(
-  targetUrl: string,
-  channelId: string,
-  req: express.Request,
-  res: express.Response
-): Promise<void> {
-  let parsedTarget: URL
-  try {
-    parsedTarget = new URL(targetUrl)
-  } catch {
-    res.status(400).end()
-    return
-  }
-  if (isPrivateOrLoopbackHost(parsedTarget.hostname)) {
-    res.status(403).end()
-    return
-  }
-
-  const controller = new AbortController()
-  req.on('close', () => controller.abort())
-
-  let upstream: Response
-  try {
-    upstream = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'MartBox/1.0',
-        ...(req.headers.range ? { Range: req.headers.range as string } : {})
-      }
-    })
-  } catch {
-    res.status(502).end()
-    return
-  }
-  if (!upstream.ok || !upstream.body) {
-    res.status(upstream.status || 502).end()
-    return
-  }
-  // fetch() follows redirects transparently, which could otherwise be used
-  // to route around the pre-fetch loopback/private-IP check above (a public
-  // host redirecting to an internal one) — re-check wherever the content
-  // actually came from.
-  if (upstream.url && isPrivateOrLoopbackHost(new URL(upstream.url).hostname)) {
-    res.status(403).end()
-    return
-  }
-
-  // Many IPTV entries route through a redirector (short links, CDN
-  // dispatch, etc.) — fetch() follows the redirect transparently, but any
-  // relative segment/sub-playlist URL in the manifest is relative to where
-  // the content actually came from (upstream.url), not the URL we started
-  // from. Resolving against the original URL silently breaks every
-  // relative reference on a redirecting source.
-  const finalUrl = upstream.url || targetUrl
-  const urlPath = new URL(finalUrl).pathname.toLowerCase()
-  const contentType = (upstream.headers.get('content-type') || '').toLowerCase()
-  const looksLikeManifest = urlPath.endsWith('.m3u8') || contentType.includes('mpegurl')
-
-  if (looksLikeManifest) {
-    const text = await upstream.text()
-    if (text.trimStart().startsWith('#EXTM3U')) {
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
-      res.status(200).send(rewriteManifest(text, finalUrl, channelId))
-      return
-    }
-    res.setHeader('Content-Type', contentType || 'application/octet-stream')
-    res.status(200).send(text)
-    return
-  }
-
-  for (const h of PASSTHROUGH_HEADERS) {
-    const v = upstream.headers.get(h)
-    if (v) res.setHeader(h, v)
-  }
-  res.status(upstream.status)
-  Readable.fromWeb(upstream.body as any).pipe(res)
-}
-
 export function startMediaServer(imageCacheDir: string): Promise<number> {
   const app = express()
 
-  // The IPTV channel list alone can run into the thousands of entries as
-  // JSON — meaningful over a local socket, much more so over the tailnet
-  // link a remote client reads it through. compression skips binary
+  // Library lists can run into thousands of entries as JSON — meaningful
+  // over a local socket, much more so over the tailnet link a remote client
+  // reads it through. compression skips binary
   // content-types (video streams, images) by default, so this only affects
   // the JSON/text API responses, not playback.
   app.use(compression())
@@ -881,26 +775,6 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     }
     res.sendFile(resolved)
   })
-
-  if (!process.mas) {
-    app.get('/live/:channelId', async (req, res) => {
-      const streamUrl = getIptvChannelStreamUrl(parseInt(req.params.channelId, 10))
-      if (!streamUrl) {
-        res.status(404).end()
-        return
-      }
-      await proxyLiveUrl(streamUrl, req.params.channelId, req, res)
-    })
-
-    app.get('/live/:channelId/segment', async (req, res) => {
-      const target = req.query.u as string
-      if (!target || !/^https?:\/\//i.test(target)) {
-        res.status(400).end()
-        return
-      }
-      await proxyLiveUrl(target, req.params.channelId, req, res)
-    })
-  }
 
   // Fire-and-forget: runs in the background while the server starts
   // accepting connections, so the first real transcode request doesn't pay
