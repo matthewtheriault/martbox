@@ -162,7 +162,11 @@ const api = {
   },
   settings: {
     get: () => invoke<AppSettings>('settings:get'),
-    setTmdbKey: (key: string) => invoke<boolean>('settings:setTmdbKey', key)
+    setTmdbKey: (key: string) => invoke<boolean>('settings:setTmdbKey', key),
+    getTranscodeCacheDir: () =>
+      invoke<{ path: string; isDefault: boolean }>('settings:getTranscodeCacheDir'),
+    chooseTranscodeCacheDir: () => invoke<string | null>('settings:chooseTranscodeCacheDir'),
+    resetTranscodeCacheDir: () => invoke<string>('settings:resetTranscodeCacheDir')
   },
   media: {
     serverPort: () => invoke<number>('media:serverPort')

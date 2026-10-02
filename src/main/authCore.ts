@@ -136,7 +136,7 @@ export class FailureLimiter {
 // token instead, appended as ?mt= to stream, image, probe and subtitle URLs
 // only. It names the device, so signing the device out kills its tokens too.
 export const MEDIA_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
-const MEDIA_PATH_PREFIXES = ['/stream/', '/probe/', '/subtitles/']
+const MEDIA_PATH_PREFIXES = ['/stream/', '/probe/', '/subtitles/', '/hls/']
 
 export function isMediaRoute(path: string): boolean {
   return path === '/image' || MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))

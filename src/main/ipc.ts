@@ -51,7 +51,14 @@ import {
 } from './autoUpdate'
 import { verifyChannels, isHealthCheckRunning } from './iptvHealth'
 import { refreshIptv } from './iptv'
-import { getMediaServerPort, getMediaServerRemotePort, isRemoteLoginRequired } from './mediaServer'
+import {
+  DEFAULT_HLS_CACHE_DIR,
+  getMediaServerPort,
+  getMediaServerRemotePort,
+  hlsCacheDir,
+  isRemoteLoginRequired,
+  setHlsCacheDir
+} from './mediaServer'
 import {
   startSidecar,
   stopSidecar,
@@ -600,6 +607,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await revokeGuestDevicesByAddr(addrs).catch((err) => logError('revokeGuestDevicesByAddr', err))
     }
   )
+
+  // Where converted-video chunks are written while streaming (HLS).
+  ipcMain.handle('settings:getTranscodeCacheDir', () => ({
+    path: hlsCacheDir(),
+    isDefault: hlsCacheDir() === DEFAULT_HLS_CACHE_DIR
+  }))
+  ipcMain.handle('settings:chooseTranscodeCacheDir', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a folder for temporary streaming files',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    setHlsCacheDir(result.filePaths[0])
+    return hlsCacheDir()
+  })
+  ipcMain.handle('settings:resetTranscodeCacheDir', () => {
+    setHlsCacheDir(null)
+    return hlsCacheDir()
+  })
 
   ipcMain.handle('remoteAccess:getRequireLogin', () => isRemoteLoginRequired())
   ipcMain.handle('remoteAccess:setRequireLogin', (_e, requestingProfileId: number, required: boolean) => {

@@ -74,6 +74,7 @@ export default function Settings(): JSX.Element {
   const [speedResult, setSpeedResult] = useState<SpeedTestResult | null>(null)
   const [speedTesting, setSpeedTesting] = useState(false)
   const [speedError, setSpeedError] = useState<string | null>(null)
+  const [cacheDir, setCacheDir] = useState<{ path: string; isDefault: boolean } | null>(null)
   const [connectCodeInput, setConnectCodeInput] = useState('')
   const [connectError, setConnectError] = useState<string | null>(null)
   const [guests, setGuests] = useState<TailscaleGuestDevice[] | null>(null)
@@ -168,6 +169,7 @@ export default function Settings(): JSX.Element {
     })
     const unsubscribeRemote = window.api.remoteAccess.onStatus(setRemoteStatus)
     window.api.updates.getStatus().then(setUpdateStatus)
+    window.api.settings.getTranscodeCacheDir().then(setCacheDir)
     const unsubscribeUpdates = window.api.updates.onStatus(setUpdateStatus)
     window.api.remoteAccess
       .serverCompatibility()
@@ -356,6 +358,17 @@ export default function Settings(): JSX.Element {
     } finally {
       setSpeedTesting(false)
     }
+  }
+
+  const chooseCacheDir = async (): Promise<void> => {
+    if ((await window.api.settings.chooseTranscodeCacheDir()) !== null) {
+      setCacheDir(await window.api.settings.getTranscodeCacheDir())
+    }
+  }
+
+  const resetCacheDir = async (): Promise<void> => {
+    await window.api.settings.resetTranscodeCacheDir()
+    setCacheDir(await window.api.settings.getTranscodeCacheDir())
   }
 
   const toggleRequireLogin = async (required: boolean): Promise<void> => {
@@ -993,6 +1006,32 @@ export default function Settings(): JSX.Element {
             </section>
           )}
         </>
+      )}
+
+      {remoteMode !== 'client' && cacheDir && (
+        <section className="settings-section">
+          <h2>Streaming</h2>
+          <p className="settings-hint">
+            Video that can&apos;t play as-is on a device (for example on an iPhone or Apple TV) is
+            converted into short chunks while it plays. The chunks are deleted when playback
+            stops, but a long movie can use several gigabytes while it&apos;s playing — point this
+            at a drive with free space if your system drive is small.
+          </p>
+          <p className="settings-hint">
+            Temporary files: {cacheDir.path}
+            {cacheDir.isDefault && ' (system temp folder)'}
+          </p>
+          <div className="settings-row">
+            <button className="btn-secondary" onClick={chooseCacheDir}>
+              Change Folder…
+            </button>
+            {!cacheDir.isDefault && (
+              <button className="btn-secondary" onClick={resetCacheDir}>
+                Use Default
+              </button>
+            )}
+          </div>
+        </section>
       )}
 
       <section className="settings-section">

@@ -11,6 +11,8 @@ import {
 } from 'fs'
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
+import { tmpdir } from 'os'
+import { clearStaleHlsFolders, registerHlsRoutes, stopAllHlsSessions } from './hls'
 import { randomBytes } from 'crypto'
 import { app } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
@@ -56,7 +58,7 @@ import {
 import { FailureLimiter, bearerToken, isMediaRoute, isPublicRemoteRoute } from './authCore'
 import { revokeGuestDevicesByAddr } from './tailscaleApi'
 import { logError } from './errorLog'
-import { getSetting } from './db'
+import { deleteSetting, getSetting, setSetting } from './db'
 import type { MediaType, Profile, WatchlistMediaType } from '../shared/types'
 
 let server: Server | null = null
@@ -325,6 +327,48 @@ function detectHardwareEncoder(): Promise<HardwareEncoder | null> {
     })()
   }
   return hardwareEncoderPromise
+}
+
+// Bitrate caps for HLS transcodes: 1080p at most, ~8 Mbps average and 10
+// Mbps peak — fits a remote friend's connection while looking good on a TV.
+const HLS_RATE_ARGS = ['-b:v', '8M', '-maxrate', '10M', '-bufsize', '16M']
+const HLS_ENCODER_ARGS: Record<HardwareEncoder, string[]> = {
+  h264_nvenc: [...HARDWARE_ENCODER_ARGS.h264_nvenc, ...HLS_RATE_ARGS],
+  h264_qsv: [...HARDWARE_ENCODER_ARGS.h264_qsv, ...HLS_RATE_ARGS],
+  h264_amf: ['-c:v', 'h264_amf', '-quality', 'balanced', '-rc', 'vbr_peak', ...HLS_RATE_ARGS]
+}
+// Scale down only (never up) to 1080p; 8-bit 4:2:0 is what every H.264
+// player and hardware encoder accepts (10-bit HDR sources included).
+const HLS_SCALE_FILTER = ['-vf', "scale=w='min(1920,iw)':h=-2,format=yuv420p"]
+
+async function hlsVideoArgs(filePath: string): Promise<{ args: string[]; copy: boolean }> {
+  const probe = await probeFile(filePath)
+  if (probe.videoCodec === 'h264') return { args: ['-c:v', 'copy'], copy: true }
+  const encoder = await detectHardwareEncoder()
+  return {
+    args: [
+      ...HLS_SCALE_FILTER,
+      ...(encoder
+        ? HLS_ENCODER_ARGS[encoder]
+        : ['-c:v', 'libx264', '-preset', 'faster', '-crf', '21', '-maxrate', '10M', '-bufsize', '16M'])
+    ],
+    copy: false
+  }
+}
+
+export const DEFAULT_HLS_CACHE_DIR = join(tmpdir(), 'martbox-hls')
+
+export function hlsCacheDir(): string {
+  return getSetting('transcodeCacheDir') || DEFAULT_HLS_CACHE_DIR
+}
+
+// Moving the cache ends running sessions (their folders live in the old
+// place) — players simply restart them on their next request.
+export function setHlsCacheDir(dir: string | null): void {
+  stopAllHlsSessions()
+  if (dir) setSetting('transcodeCacheDir', dir)
+  else deleteSetting('transcodeCacheDir')
+  clearStaleHlsFolders(hlsCacheDir())
 }
 
 async function streamTranscode(
@@ -761,6 +805,17 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   app.use(authenticate)
 
   registerMetadataApi(app)
+  registerHlsRoutes(app, {
+    ffmpegPath,
+    resolveMediaPath,
+    videoArgs: hlsVideoArgs,
+    ownerOf: (res) => {
+      const auth = authOf(res)
+      return auth.kind === 'device' ? `device:${auth.device.id}` : auth.kind
+    },
+    cacheDir: hlsCacheDir,
+    log: logTranscode
+  })
 
   app.get('/stream/:mediaType/:id', async (req, res) => {
     const { mediaType, id } = req.params
@@ -890,6 +945,7 @@ export function getMediaServerRemotePort(): number {
 }
 
 export function stopMediaServer(): void {
+  stopAllHlsSessions()
   server?.close()
   remoteServer?.close()
 }
