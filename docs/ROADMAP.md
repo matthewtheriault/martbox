@@ -127,6 +127,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 |---|---|---|---|
 | 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
 | 1 | Remote access v2 — in this order: users/login codes ✓, Tailscale speed ✓, iPhone/Apple TV sign-in, dashboard v1, 4K/HDR + HW transcode, dashboard v2/v3 | all | 5–7 wks |
+| 1b | Live Channels: your own TV network from the library (ErsatzTV-style always-on channels + guide) | iPhone, Apple TV, desktop; Fire TV with Phase 3 | 1–2 wks |
 | 2 | Design foundations: colour palette, type, spacing rules (no restyle yet) | all | 2–4 days |
 | 3 | Fire TV app first, then the Android phone layout (one codebase) | Fire TV, Android | 8–12 wks |
 | 3b | Optional: MartBox Web for friends who already run Tailscale | browser | 1–2 wks |
@@ -169,6 +170,33 @@ and security review (done), Tailscale speed and access rules (done),
 iPhone/Apple TV sign-in (unblocks "require a login"), dashboard v1 (Now
 Playing + Network, the measuring tool for the next part), 4K/HDR and
 transcoding, dashboard v2/v3.
+
+**Phase 1b — Live Channels.** Your own TV network, like ErsatzTV: always-on
+custom channels made only from movies and shows already in the server's
+library, which friends tune into mid-show, with a TV guide. No outside TV or
+IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the guide on an Apple TV, joins "Simpsons
+24/7" partway through an episode, and channel up/down works with the remote.
+- Admin builds channels in the desktop app: pick shows, collections, a
+  genre or decade; shuffle or in order; optional time blocks ("cartoons
+  7–11 am"), channel number and logo.
+- The schedule is worked out from the clock (a fixed start time + the
+  ordered items' lengths), so nothing runs while nobody watches; tuning in
+  plays the current item from the right point and rolls on to the next.
+- Reuses the Phase 1 streaming (direct play / remux / transcode, quality
+  setting), so channels play as well as anything else.
+- Apps: a Live tab with a guide grid (channels × time, now/next), channel
+  up/down and an info banner on the remote. Fire TV gets it with Phase 3.
+- Left on all day: nothing runs while nobody watches, but a channel left
+  playing is a stream that never ends, so:
+  - "Are you still watching?" after ~3 hours with no button pressed; the
+    stream stops until someone answers (regular playback too).
+  - Optional per-channel quality cap (e.g. 1080p or 720p) so a background
+    channel doesn't stream 4K all day.
+  - Dashboard shows who's on a channel, for how long and the upload it uses,
+    with a stop button.
+  - Viewers on the same channel at the same quality share one transcode.
+- Later: filler between items (trailers, bumpers from the library), a logo
+  overlay.
 
 **Phase 2 — Design foundations.** Done when the palette, type scale, spacing
 and corner rules are written down as design tokens and shown on one sample
