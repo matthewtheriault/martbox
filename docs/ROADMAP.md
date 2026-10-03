@@ -186,6 +186,15 @@ IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the
   setting), so channels play as well as anything else.
 - Apps: a Live tab with a guide grid (channels × time, now/next), channel
   up/down and an info banner on the remote. Fire TV gets it with Phase 3.
+- Left on all day: nothing runs while nobody watches, but a channel left
+  playing is a stream that never ends, so:
+  - "Are you still watching?" after ~3 hours with no button pressed; the
+    stream stops until someone answers (regular playback too).
+  - Optional per-channel quality cap (e.g. 1080p or 720p) so a background
+    channel doesn't stream 4K all day.
+  - Dashboard shows who's on a channel, for how long and the upload it uses,
+    with a stop button.
+  - Viewers on the same channel at the same quality share one transcode.
 - Later: filler between items (trailers, bumpers from the library), a logo
   overlay.
 
