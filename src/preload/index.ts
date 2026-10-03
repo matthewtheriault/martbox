@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActivityItem,
   DashboardSnapshot,
+  MediaRequest,
+  MediaRequestStatus,
+  RequestDiscover,
+  RequestMediaType,
+  RequestTitleDetails,
+  RequestableTitle,
   AppSettings,
   AppUpdateStatus,
   ContinueWatchingItem,
@@ -147,6 +153,39 @@ const api = {
         ipcRenderer.removeListener('iptv:healthProgress', listener)
       }
     }
+  },
+  requests: {
+    discover: () => invoke<RequestDiscover>('requests:discover'),
+    search: (query: string) => invoke<RequestableTitle[]>('requests:search', query),
+    title: (mediaType: RequestMediaType, tmdbId: number) =>
+      invoke<RequestTitleDetails>('requests:title', mediaType, tmdbId),
+    mine: (profileId: number, pin?: string | null) =>
+      invoke<MediaRequest[]>('requests:mine', profileId, pin),
+    create: (
+      profileId: number,
+      pin: string | null,
+      mediaType: RequestMediaType,
+      tmdbId: number,
+      seasons: number[] | null
+    ) =>
+      invoke<
+        | { ok: true; request: MediaRequest }
+        | { ok: false; reason: 'in-library' | 'already-requested' | 'no-seasons'; by: string | null }
+      >('requests:create', profileId, pin, mediaType, tmdbId, seasons),
+    cancel: (profileId: number, pin: string | null, id: number) =>
+      invoke<void>('requests:cancel', profileId, pin, id),
+    listAll: (requestingProfileId: number) =>
+      invoke<MediaRequest[]>('requests:listAll', requestingProfileId),
+    pendingCount: (requestingProfileId: number) =>
+      invoke<number>('requests:pendingCount', requestingProfileId),
+    setStatus: (
+      requestingProfileId: number,
+      id: number,
+      status: MediaRequestStatus,
+      note: string | null
+    ) => invoke<void>('requests:setStatus', requestingProfileId, id, status, note),
+    remove: (requestingProfileId: number, id: number) =>
+      invoke<void>('requests:delete', requestingProfileId, id)
   },
   dashboard: {
     snapshot: (requestingProfileId: number) =>

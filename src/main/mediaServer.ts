@@ -31,8 +31,16 @@ import {
   type StreamOwner
 } from './dashboard'
 import { getLastRemoteAccessStatus } from './tsnetSidecar'
+import {
+  annotateTitles,
+  cancelRequest,
+  createRequest,
+  listRequests,
+  titleDetails
+} from './requests'
+import { discoverForRequests, requestTitleInfo, searchForRequests } from './tmdb'
 import { randomBytes } from 'crypto'
-import { app } from 'electron'
+import { app, Notification } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
 // @ts-ignore - no types shipped
 import ffmpegStatic from 'ffmpeg-static'
@@ -703,6 +711,131 @@ function canActAsProfile(res: express.Response, profileId: number, pin: string |
   return hasProfileAccess(res, profileId, pin)
 }
 
+// --- Requests (requests.ts): friends ask for movies and shows ---
+
+// Who's making a request: a signed-in device is its own user; this PC or an
+// older app names the profile (with its PIN, if it has one).
+function requestProfileId(req: express.Request, res: express.Response): number | null {
+  const own = deviceProfile(res)
+  if (own) return own.id
+  const source = req.method === 'POST' ? (req.body ?? {}) : req.query
+  const pin = typeof source.pin === 'string' ? source.pin : undefined
+  const profileId = parseInt(String(source.profileId ?? ''), 10)
+  if (!Number.isInteger(profileId) || !canActAsProfile(res, profileId, pin)) return null
+  return profileId
+}
+
+function isRequestMediaType(value: unknown): value is 'movie' | 'tv' {
+  return value === 'movie' || value === 'tv'
+}
+
+const TMDB_UNAVAILABLE = "Can't reach TMDB right now (or the server has no TMDB key)."
+
+function registerRequestRoutes(app: express.Express): void {
+  const json = express.json({ limit: '8kb' })
+
+  app.get('/api/requests/discover', async (_req, res) => {
+    const discover = await discoverForRequests()
+    if (!discover) {
+      res.status(502).json({ error: TMDB_UNAVAILABLE })
+      return
+    }
+    res.json({
+      sections: discover.sections.map((section) => ({
+        ...section,
+        items: annotateTitles(section.items)
+      }))
+    })
+  })
+
+  app.get('/api/requests/search', async (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+    if (!query) {
+      res.json([])
+      return
+    }
+    const results = await searchForRequests(query)
+    if (!results) {
+      res.status(502).json({ error: TMDB_UNAVAILABLE })
+      return
+    }
+    res.json(annotateTitles(results))
+  })
+
+  app.get('/api/requests/title/:mediaType/:tmdbId', async (req, res) => {
+    const { mediaType } = req.params
+    const tmdbId = parseInt(req.params.tmdbId, 10)
+    if (!isRequestMediaType(mediaType) || !Number.isInteger(tmdbId)) {
+      res.status(400).json({ error: 'Bad title' })
+      return
+    }
+    const info = await requestTitleInfo(mediaType, tmdbId)
+    if (!info) {
+      res.status(502).json({ error: TMDB_UNAVAILABLE })
+      return
+    }
+    res.json(titleDetails(info))
+  })
+
+  // The asker's own requests, newest first.
+  app.get('/api/requests', (req, res) => {
+    const profileId = requestProfileId(req, res)
+    if (profileId === null) {
+      res.status(403).json({ error: 'Sign in to see your requests' })
+      return
+    }
+    res.json(listRequests(profileId))
+  })
+
+  app.post('/api/requests', json, async (req, res) => {
+    const profileId = requestProfileId(req, res)
+    if (profileId === null) {
+      res.status(403).json({ error: 'Sign in to make requests' })
+      return
+    }
+    const { mediaType, tmdbId, seasons } = req.body ?? {}
+    const id = Number(tmdbId)
+    if (!isRequestMediaType(mediaType) || !Number.isInteger(id)) {
+      res.status(400).json({ error: 'Bad title' })
+      return
+    }
+    const info = await requestTitleInfo(mediaType, id)
+    if (!info) {
+      res.status(502).json({ error: TMDB_UNAVAILABLE })
+      return
+    }
+    const wanted = Array.isArray(seasons)
+      ? seasons.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+      : null
+    const result = createRequest(profileId, info, wanted)
+    if (!result.ok) {
+      res.status(409).json({ error: result.reason, by: result.by ?? null })
+      return
+    }
+    // The admin hears about it on the server PC itself (no phone
+    // notifications, by design).
+    if (Notification.isSupported()) {
+      const who = result.request.profileName || 'Someone'
+      new Notification({
+        title: 'New request',
+        body: `${who} requested ${result.request.title}`
+      }).show()
+    }
+    res.json(result.request)
+  })
+
+  // Taking back your own request while it's still pending.
+  app.delete('/api/requests/:id', (req, res) => {
+    const profileId = requestProfileId(req, res)
+    if (profileId === null) {
+      res.status(403).json({ error: 'Sign in to manage your requests' })
+      return
+    }
+    const ok = cancelRequest(parseInt(req.params.id, 10), profileId)
+    res.status(ok ? 200 : 404).json({ ok })
+  })
+}
+
 // Mirrors the same reads/writes exposed over Electron IPC in ipc.ts, so a
 // friend's MartBox install (client mode) can reach this host's catalog and
 // watch history over the tailnet instead of its own empty local DB. Thin
@@ -1022,6 +1155,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   })
 
   registerMetadataApi(app)
+  registerRequestRoutes(app)
   registerHlsRoutes(app, {
     ffmpegPath,
     resolveMediaPath,

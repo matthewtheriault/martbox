@@ -54,6 +54,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T
 }
 
+// For callers that need the host's own error replies (e.g. a request that
+// was already made): the status and JSON body as they came, auth included.
+export async function rawRequest(
+  path: string,
+  init?: RequestInit
+): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${baseUrl()}${path}`, {
+    ...init,
+    headers: { ...(init?.headers as Record<string, string> | undefined), ...authHeaders() },
+    signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  })
+  return { status: res.status, body: await res.json().catch(() => null) }
+}
+
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }

@@ -356,3 +356,63 @@ export interface DashboardSnapshot {
     devices: DashboardDevice[]
   }
 }
+
+// --- Requests (friends ask for movies/shows; the admin handles them) ---
+
+export type RequestMediaType = 'movie' | 'tv'
+
+// A title from TMDB that someone could request. Image URLs point straight
+// at TMDB's CDN (no key needed), so any app can show them.
+export interface RequestableTitle {
+  tmdbId: number
+  mediaType: RequestMediaType
+  title: string
+  year: number | null
+  overview: string
+  posterUrl: string | null
+  backdropUrl: string | null
+  rating: number | null
+  // Filled in by the server for browse and search results: whether it's
+  // already on MartBox, and the newest open request for it.
+  onServer?: boolean
+  requestStatus?: MediaRequestStatus | null
+}
+
+export interface RequestDiscover {
+  sections: { title: string; items: RequestableTitle[] }[]
+}
+
+export type MediaRequestStatus = 'pending' | 'approved' | 'declined' | 'available'
+
+export interface MediaRequest {
+  id: number
+  tmdbId: number
+  mediaType: RequestMediaType
+  title: string
+  year: number | null
+  posterUrl: string | null
+  // TV: the seasons asked for. null for movies, and for a show TMDB lists
+  // no seasons for yet.
+  seasons: number[] | null
+  status: MediaRequestStatus
+  // The admin's note (e.g. why it was declined).
+  note: string | null
+  profileId: number
+  profileName: string
+  createdAt: string
+  updatedAt: string
+  // Where it is in the library once available.
+  libraryMovieId: number | null
+  libraryShowId: number | null
+}
+
+export interface RequestTitleDetails extends RequestableTitle {
+  genres: string[]
+  runtimeMinutes: number | null
+  // TV only: TMDB's seasons (specials, season 0, left out).
+  seasons: { number: number; name: string; episodeCount: number; airYear: number | null }[]
+  // Already on the server: the movie, or the show and which seasons.
+  library: { movieId: number | null; showId: number | null; seasons: number[] } | null
+  // Open requests for this title, from anyone.
+  requests: MediaRequest[]
+}

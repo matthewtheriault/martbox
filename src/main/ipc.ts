@@ -44,6 +44,12 @@ import { looksLikeLoginCode } from './authCore'
 import { handleClientStatus, redeemLoginCode, setPendingLoginCode } from './clientSession'
 import { scanAndMatchLibrary } from './library'
 import {
+  deleteRequest,
+  listRequests,
+  pendingRequestCount,
+  setRequestStatus
+} from './requests'
+import {
   checkForUpdatesNow,
   getUpdateStatus,
   installUpdateNow,
@@ -80,8 +86,14 @@ import {
 } from '../shared/remoteAccess'
 import type {
   LoginCodeResult,
+  MediaRequest,
+  MediaRequestStatus,
   MediaType,
   MovieMetadataPatch,
+  RequestDiscover,
+  RequestMediaType,
+  RequestTitleDetails,
+  RequestableTitle,
   ShowMetadataPatch,
   WatchlistMediaType
 } from '../shared/types'
@@ -567,6 +579,98 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const requester = repository.listProfiles().find((p) => p.id === requestingProfileId)
     if (!requester?.isAdmin) throw new Error('Only the admin can manage users')
   }
+
+  // --- Requests ---
+  // The friend side works the same here as on the phone apps: through the
+  // server's HTTP API — this PC's own server, or the host's in client mode.
+
+  const serverCall = async (
+    path: string,
+    init?: RequestInit
+  ): Promise<{ status: number; body: any }> => {
+    if (getSetting('remoteAccessMode') === 'client') return remoteClient.rawRequest(path, init)
+    const res = await fetch(`http://127.0.0.1:${getMediaServerPort()}${path}`, init)
+    return { status: res.status, body: await res.json().catch(() => null) }
+  }
+  const okOrThrow = <T>(reply: { status: number; body: any }): T => {
+    if (reply.status >= 200 && reply.status < 300) return reply.body as T
+    throw new Error(reply.body?.error ?? `Request failed (${reply.status})`)
+  }
+  const profileQuery = (profileId: number, pin?: string | null): string =>
+    `profileId=${profileId}${pin ? `&pin=${encodeURIComponent(pin)}` : ''}`
+
+  ipcMain.handle('requests:discover', async () =>
+    okOrThrow<RequestDiscover>(await serverCall('/api/requests/discover'))
+  )
+  ipcMain.handle('requests:search', async (_e, query: string) =>
+    okOrThrow<RequestableTitle[]>(
+      await serverCall(`/api/requests/search?q=${encodeURIComponent(query)}`)
+    )
+  )
+  ipcMain.handle('requests:title', async (_e, mediaType: RequestMediaType, tmdbId: number) =>
+    okOrThrow<RequestTitleDetails>(
+      await serverCall(`/api/requests/title/${mediaType}/${tmdbId}`)
+    )
+  )
+  ipcMain.handle('requests:mine', async (_e, profileId: number, pin?: string | null) =>
+    okOrThrow<MediaRequest[]>(await serverCall(`/api/requests?${profileQuery(profileId, pin)}`))
+  )
+  // Resolves to the new request, or the reason it wasn't made.
+  ipcMain.handle(
+    'requests:create',
+    async (
+      _e,
+      profileId: number,
+      pin: string | null,
+      mediaType: RequestMediaType,
+      tmdbId: number,
+      seasons: number[] | null
+    ) => {
+      const reply = await serverCall('/api/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, pin, mediaType, tmdbId, seasons })
+      })
+      if (reply.status === 409) {
+        return { ok: false, reason: reply.body?.error, by: reply.body?.by ?? null }
+      }
+      return { ok: true, request: okOrThrow<MediaRequest>(reply) }
+    }
+  )
+  ipcMain.handle(
+    'requests:cancel',
+    async (_e, profileId: number, pin: string | null, id: number) => {
+      await serverCall(`/api/requests/${id}?${profileQuery(profileId, pin)}`, { method: 'DELETE' })
+    }
+  )
+
+  // Admin, on the server PC.
+  ipcMain.handle('requests:listAll', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    return listRequests()
+  })
+  ipcMain.handle('requests:pendingCount', (_e, requestingProfileId: number) => {
+    if (getSetting('remoteAccessMode') === 'client') return 0
+    requireHostAdmin(requestingProfileId)
+    return pendingRequestCount()
+  })
+  ipcMain.handle(
+    'requests:setStatus',
+    (
+      _e,
+      requestingProfileId: number,
+      id: number,
+      status: MediaRequestStatus,
+      note: string | null
+    ) => {
+      requireHostAdmin(requestingProfileId)
+      setRequestStatus(id, status, note)
+    }
+  )
+  ipcMain.handle('requests:delete', (_e, requestingProfileId: number, id: number) => {
+    requireHostAdmin(requestingProfileId)
+    deleteRequest(id)
+  })
 
   // --- Dashboard (host only, admin only) ---
 

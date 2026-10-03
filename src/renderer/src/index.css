@@ -1921,3 +1921,257 @@ button {
 .dash-device-name {
   font-weight: 600;
 }
+
+/* ---------- requests ---------- */
+
+.req-search {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 0 1.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  padding: 0.7rem 1.1rem;
+  font-size: 0.95rem;
+}
+
+.req-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1.2rem;
+}
+
+.req-status {
+  font-weight: 600;
+}
+
+.req-status-pending {
+  color: #fbbf24;
+}
+
+.req-status-approved,
+.req-status-available {
+  color: var(--success);
+}
+
+.req-status-declined {
+  color: var(--danger);
+}
+
+.req-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.req-modal {
+  position: relative;
+  width: min(820px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.req-modal-backdrop-img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  display: block;
+  mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  opacity: 0.6;
+}
+
+.req-modal-close {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.9rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.req-modal-body {
+  display: flex;
+  gap: 1.4rem;
+  padding: 1.6rem;
+  position: relative;
+}
+
+/* Poster and title overlap the bottom of the backdrop image. */
+.req-modal-body-over {
+  padding-top: 0;
+  margin-top: -110px;
+}
+
+.req-modal-poster {
+  width: 150px;
+  height: 225px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  flex: 0 0 auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.req-modal-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.req-modal-body-over .req-modal-info {
+  padding-top: 110px;
+}
+
+.req-modal-info h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.req-modal-year,
+.req-modal-meta {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.req-modal-meta {
+  font-size: 0.9rem;
+}
+
+.req-modal-overview {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.req-on-server {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.req-existing {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.req-seasons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.35rem 1rem;
+  width: 100%;
+}
+
+.req-season {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.req-season.taken {
+  opacity: 0.5;
+}
+
+.req-message {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.req-error {
+  color: var(--danger);
+  margin: 0;
+}
+
+.dash-count {
+  margin-left: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  color: #fff;
+  vertical-align: middle;
+}
+
+.dash-requests {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-request {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.dash-request:first-child {
+  border-top: none;
+}
+
+.dash-request-poster {
+  flex: 0 0 46px;
+  height: 69px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dash-request-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dash-request-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dash-request-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.dash-small-btn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.sidebar-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  min-width: 1.3rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  color: #fff;
+  text-align: center;
+}
+
+.dash-request-actions .dash-stop {
+  margin-top: 0;
+  align-self: center;
+}
