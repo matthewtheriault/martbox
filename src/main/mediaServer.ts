@@ -12,7 +12,25 @@ import {
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
-import { clearStaleHlsFolders, registerHlsRoutes, stopAllHlsSessions } from './hls'
+import {
+  clearStaleHlsFolders,
+  registerHlsRoutes,
+  stopAllHlsSessions,
+  stopHlsSessionsFor
+} from './hls'
+import {
+  attributeRequest,
+  noteHeartbeat,
+  notePlaybackDecision,
+  onStreamStopped,
+  setMediaLookup,
+  snapshot,
+  stopStream,
+  stoppedMessage,
+  watchRemoteServer,
+  type StreamOwner
+} from './dashboard'
+import { getLastRemoteAccessStatus } from './tsnetSidecar'
 import { randomBytes } from 'crypto'
 import { app } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
@@ -60,6 +78,8 @@ import {
   createMediaToken,
   deviceAddrsForProfile,
   redeemLoginCode,
+  deviceTailnetAddr,
+  listDevices,
   saveDeviceSpeed,
   type AuthenticatedDevice
 } from './auth'
@@ -67,7 +87,13 @@ import { FailureLimiter, bearerToken, isMediaRoute, isPublicRemoteRoute } from '
 import { revokeGuestDevicesByAddr } from './tailscaleApi'
 import { logError } from './errorLog'
 import { deleteSetting, getSetting, setSetting } from './db'
-import type { MediaType, Profile, WatchlistMediaType } from '../shared/types'
+import type {
+  DashboardSnapshot,
+  MediaType,
+  Profile,
+  StreamState,
+  WatchlistMediaType
+} from '../shared/types'
 
 let server: Server | null = null
 let remoteServer: Server | null = null
@@ -90,6 +116,126 @@ type RequestAuth =
 
 function authOf(res: express.Response): RequestAuth {
   return res.locals.auth as RequestAuth
+}
+
+// --- Dashboard (dashboard.ts): who's watching what ---
+
+// Same keys the HLS sessions use: 'device:<id>', 'local' or 'legacy'.
+function ownerKeyOf(res: express.Response): string {
+  const auth = authOf(res)
+  return auth.kind === 'device' ? `device:${auth.device.id}` : auth.kind
+}
+
+function streamOwner(res: express.Response, profileId?: number): StreamOwner {
+  const auth = authOf(res)
+  if (auth.kind === 'device') {
+    return {
+      key: ownerKeyOf(res),
+      deviceId: auth.device.id,
+      deviceName: auth.device.name,
+      profileName: auth.profile.name,
+      profileAvatarId: auth.profile.avatarId
+    }
+  }
+  const profile = profileId ? listProfiles().find((p) => p.id === profileId) : undefined
+  return {
+    key: ownerKeyOf(res),
+    deviceId: null,
+    deviceName: auth.kind === 'local' ? 'This PC' : 'Older app',
+    profileName: profile?.name ?? '',
+    profileAvatarId: profile?.avatarId ?? null
+  }
+}
+
+function isMediaType(value: unknown): value is MediaType {
+  return value === 'movie' || value === 'episode'
+}
+
+setMediaLookup((mediaType, mediaId) => {
+  if (mediaType === 'movie') {
+    const movie = getMovie(mediaId)
+    if (!movie) return null
+    return {
+      title: movie.title,
+      subtitle: movie.year ? String(movie.year) : '',
+      posterPath: movie.posterPath,
+      durationSeconds: movie.runtimeMinutes ? movie.runtimeMinutes * 60 : null
+    }
+  }
+  const episode = getEpisode(mediaId)
+  if (!episode) return null
+  const show = getShow(episode.showId)
+  return {
+    title: show?.title ?? episode.title,
+    subtitle: `S${episode.seasonNumber} · E${episode.episodeNumber} · ${episode.title}`,
+    posterPath: show?.posterPath ?? null,
+    durationSeconds: episode.durationSeconds
+  }
+})
+
+// Direct-play responses in flight, so stopping a stream can cut them off.
+const directResponses = new Set<{ ownerKey: string; mediaKey: string; res: express.Response }>()
+
+onStreamStopped((ownerKey, mediaType, mediaId) => {
+  const mediaKey = `${mediaType}:${mediaId}`
+  stopHlsSessionsFor(ownerKey, mediaKey)
+  for (const entry of [...directResponses]) {
+    if (entry.ownerKey === ownerKey && entry.mediaKey === mediaKey) entry.res.destroy()
+  }
+})
+
+// Playback on this PC (the host app's own player) — its progress saves go
+// straight to the database, not through HTTP.
+export function noteLocalPlayback(
+  profileId: number,
+  mediaType: MediaType,
+  mediaId: number,
+  positionSeconds: number
+): void {
+  const profile = listProfiles().find((p) => p.id === profileId)
+  noteHeartbeat(
+    {
+      key: 'local',
+      deviceId: null,
+      deviceName: 'This PC',
+      profileName: profile?.name ?? '',
+      profileAvatarId: profile?.avatarId ?? null
+    },
+    mediaType,
+    mediaId,
+    positionSeconds,
+    null,
+    null
+  )
+}
+
+export function dashboardSnapshot(): DashboardSnapshot {
+  const profiles = listProfiles()
+  const devices = listDevices().map((d) => ({
+    id: d.id,
+    name: d.name,
+    profileName: profiles.find((p) => p.id === d.profileId)?.name ?? '',
+    tailscaleAddr: deviceTailnetAddr(d.id),
+    speedMbps: d.speedMbps,
+    latencyMs: d.latencyMs,
+    speedTestedAt: d.speedTestedAt,
+    lastSeenAt: d.lastSeenAt
+  }))
+  const capacity = parseFloat(getSetting('uploadCapacityMbps') ?? '')
+  return snapshot(
+    devices,
+    getLastRemoteAccessStatus().peers ?? null,
+    Number.isFinite(capacity) && capacity > 0 ? capacity : null
+  )
+}
+
+export function stopDashboardStream(key: string, message: string): boolean {
+  return stopStream(key, message)
+}
+
+export function setUploadCapacityMbps(mbps: number | null): void {
+  if (mbps && Number.isFinite(mbps) && mbps > 0) setSetting('uploadCapacityMbps', String(mbps))
+  else deleteSetting('uploadCapacityMbps')
 }
 
 export function isRemoteLoginRequired(): boolean {
@@ -769,6 +915,11 @@ function registerMetadataApi(app: express.Express): void {
       return
     }
     saveProgress(profileId, mediaType, mediaId, positionSeconds, durationSeconds)
+    // Apps without a heartbeat still show up on the dashboard this way.
+    if (isMediaType(mediaType)) {
+      const owner = streamOwner(res, profileId)
+      noteHeartbeat(owner, mediaType, Number(mediaId), Number(positionSeconds), null, null)
+    }
     res.json({ ok: true })
   })
   app.post('/api/progress/watched', json, (req, res) => {
@@ -864,6 +1015,11 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // the JSON/text API responses, not playback.
   app.use(compression())
   app.use(authenticate)
+  // Counts what goes out to each remote device (dashboard.ts).
+  app.use((req, res, next) => {
+    if (req.socket.localPort === remotePort) attributeRequest(req, ownerKeyOf(res))
+    next()
+  })
 
   registerMetadataApi(app)
   registerHlsRoutes(app, {
@@ -872,9 +1028,16 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     probe: probeFile,
     keyframes: fileKeyframes,
     videoArgs: hlsVideoArgs,
-    ownerOf: (res) => {
-      const auth = authOf(res)
-      return auth.kind === 'device' ? `device:${auth.device.id}` : auth.kind
+    ownerOf: ownerKeyOf,
+    onMediaRequest: (req, res, mediaKey) => {
+      const [mediaType, id] = mediaKey.split(':')
+      if (!isMediaType(mediaType)) return true
+      const mediaId = parseInt(id, 10)
+      if (stoppedMessage(ownerKeyOf(res), mediaType, mediaId) !== null) return false
+      if (req.socket.localPort === remotePort) {
+        attributeRequest(req, ownerKeyOf(res), { mediaType, mediaId })
+      }
+      return true
     },
     cacheDir: hlsCacheDir,
     log: logTranscode
@@ -886,6 +1049,19 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     if (!filePath || !existsSync(filePath)) {
       res.status(404).end()
       return
+    }
+    if (isMediaType(mediaType)) {
+      const mediaId = parseInt(id, 10)
+      if (stoppedMessage(ownerKeyOf(res), mediaType, mediaId) !== null) {
+        res.status(403).json({ error: 'stopped' })
+        return
+      }
+      if (req.socket.localPort === remotePort) {
+        attributeRequest(req, ownerKeyOf(res), { mediaType, mediaId })
+      }
+      const entry = { ownerKey: ownerKeyOf(res), mediaKey: `${mediaType}:${mediaId}`, res }
+      directResponses.add(entry)
+      res.on('close', () => directResponses.delete(entry))
     }
     const probe = await probeFile(filePath)
     // ?direct=1: /api/playback already decided this player takes the file
@@ -912,6 +1088,13 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       res.status(404).json({ error: 'Not found' })
       return
     }
+    if (isMediaType(mediaType)) {
+      const message = stoppedMessage(ownerKeyOf(res), mediaType, parseInt(id, 10))
+      if (message !== null) {
+        res.status(403).json({ error: 'stopped', message })
+        return
+      }
+    }
     const probe = await probeFile(filePath)
     const quality = QUALITY_CHOICES.find((q) => q === req.query.quality) ?? 'auto'
     const avoid = (typeof req.query.avoid === 'string' ? req.query.avoid.split(',') : []).filter(
@@ -936,12 +1119,49 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     logTranscode(
       `PLAYBACK ${mediaType}/${id} method=${decision.method} bandwidthKbps=${bandwidthKbps ?? 'unknown'} quality=${quality} avoid=${avoid.join(',') || 'none'} — ${decision.reason}`
     )
+    if (isMediaType(mediaType)) {
+      const owner = streamOwner(res)
+      notePlaybackDecision(
+        owner,
+        mediaType,
+        parseInt(id, 10),
+        decision.method,
+        decision.reason,
+        probe.durationSeconds
+      )
+    }
     res.json({
       method: decision.method,
       path,
       reason: decision.reason,
       durationSeconds: probe.durationSeconds
     })
+  })
+
+  // Players report every ~10 s while open, playing or not, for the
+  // dashboard. The reply tells the player if the admin stopped it.
+  app.post('/api/playback/heartbeat', express.json({ limit: '4kb' }), (req, res) => {
+    const { mediaType, mediaId, positionSeconds, state, stalls } = req.body ?? {}
+    const id = Number(mediaId)
+    if (!isMediaType(mediaType) || !Number.isInteger(id)) {
+      res.status(400).json({ error: 'mediaType and mediaId are required' })
+      return
+    }
+    const message = stoppedMessage(ownerKeyOf(res), mediaType, id)
+    if (message !== null) {
+      res.json({ stop: true, message })
+      return
+    }
+    const states: StreamState[] = ['playing', 'paused', 'buffering']
+    noteHeartbeat(
+      streamOwner(res),
+      mediaType,
+      id,
+      Number(positionSeconds),
+      states.find((s) => s === state) ?? null,
+      Number.isFinite(Number(stalls)) ? Number(stalls) : null
+    )
+    res.json({ stop: false })
   })
 
   app.get('/probe/:mediaType/:id', async (req, res) => {
@@ -1036,6 +1256,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     boundPort = local.port
     remoteServer = remote.server
     remotePort = remote.port
+    watchRemoteServer(remote.server)
     return boundPort
   })()
 }

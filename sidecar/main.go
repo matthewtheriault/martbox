@@ -11,8 +11,9 @@
 // While connected, the sidecar also re-emits its status every few seconds
 // with a per-peer "path" (direct / relayed / idle) whenever it changes, so
 // the app can tell the user whether friends are getting a fast direct
-// connection or falling back to Tailscale's shared (slow) DERP relays. No
-// peer IP addresses are ever included.
+// connection or falling back to Tailscale's shared (slow) DERP relays. Each
+// peer carries its tailnet address so the host can match it to a signed-in
+// device (dashboard); public IP addresses are never included.
 //
 // The pre-auth key (needed only on first run) is read from stdin, never argv,
 // so it doesn't show up in a process listing. After the first successful
@@ -50,6 +51,8 @@ type peerMsg struct {
 	// a DERP relay; "idle": no recent traffic, so there's no path to report.
 	Path        string `json:"path"`
 	RelayRegion string `json:"relayRegion,omitempty"`
+	// The peer's first tailnet (100.x) address; matching only, never shown.
+	Addr string `json:"addr,omitempty"`
 }
 
 type statusMsg struct {
@@ -94,6 +97,9 @@ func watchPeers(ctx context.Context, srv *tsnet.Server, base statusMsg, onlyIP n
 					continue
 				}
 				pm := peerMsg{Hostname: p.HostName, Online: p.Online, Path: "idle"}
+				if len(p.TailscaleIPs) > 0 {
+					pm.Addr = p.TailscaleIPs[0].String()
+				}
 				switch {
 				case p.CurAddr != "":
 					pm.Path = "direct"

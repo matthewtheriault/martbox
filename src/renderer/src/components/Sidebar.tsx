@@ -34,6 +34,13 @@ const icons = {
     <>
       <path d="M3 12h4l2-7 6 14 2-7h4" />
     </>
+  ),
+  dashboard: (
+    <>
+      <path d="M4 15a8 8 0 1 1 16 0" />
+      <path d="m12 15 4-5" />
+      <path d="M4 19h16" />
+    </>
   )
 }
 
@@ -50,11 +57,21 @@ export default function Sidebar(): JSX.Element {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  // The dashboard lives on the server: shown only when this app is it.
+  const [isServer, setIsServer] = useState(false)
 
   const runSearch = (): void => {
     const trimmed = query.trim()
     if (trimmed) navigate(`/search?q=${encodeURIComponent(trimmed)}`)
   }
+
+  useEffect(() => {
+    if (!activeProfile.isAdmin) return
+    window.api.dashboard
+      .snapshot(activeProfile.id)
+      .then((snapshot) => setIsServer(snapshot !== null))
+      .catch(() => setIsServer(false))
+  }, [activeProfile.id, activeProfile.isAdmin])
 
   useEffect(() => {
     window.api.updates
@@ -97,6 +114,12 @@ export default function Sidebar(): JSX.Element {
           <NavLink to="/activity" className="sidebar-link">
             <Icon name="activity" />
             <span>Activity</span>
+          </NavLink>
+        )}
+        {activeProfile.isAdmin && isServer && (
+          <NavLink to="/dashboard" className="sidebar-link">
+            <Icon name="dashboard" />
+            <span>Dashboard</span>
           </NavLink>
         )}
       </nav>
