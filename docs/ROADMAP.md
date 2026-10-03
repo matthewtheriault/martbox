@@ -221,6 +221,11 @@ IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the
   - Viewers on the same channel at the same quality share one transcode.
 - Later: filler between items (trailers, bumpers from the library), a logo
   overlay.
+- **Built** (server 0.9.0, iPhone build 17, Apple TV build 20): schedule from
+  the clock (`channelSchedule.ts`), channels from shows / movie filters with
+  real file lengths (`channels.ts`), desktop Live page + editor + player,
+  iPhone and Apple TV Live tabs (shared `LiveTuner`), quality cap, "Still
+  watching?" after 3 h. Still to do: shared streams, time blocks, filler.
 
 **Phase 2 — Design foundations.** Done when the palette, type scale, spacing
 and corner rules are written down as design tokens and shown on one sample
