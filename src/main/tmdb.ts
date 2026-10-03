@@ -2,7 +2,13 @@ import { app } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync, writeFileSync } from 'fs'
 import { getSetting } from './db'
-import type { CastMember, CrewMember } from '../shared/types'
+import type {
+  CastMember,
+  CrewMember,
+  RequestDiscover,
+  RequestMediaType,
+  RequestableTitle
+} from '../shared/types'
 
 const TMDB_API = 'https://api.themoviedb.org/3'
 const IMAGE_BASE = 'https://image.tmdb.org/t/p'
@@ -435,4 +441,112 @@ export async function matchSeasonEpisodes(
     })
   }
   return matches
+}
+
+// --- Requests: browsing TMDB for things that aren't in the library yet ---
+// Images stay on TMDB's CDN (nothing is cached locally): most browsed
+// titles are never requested.
+
+interface TmdbListItem {
+  id: number
+  media_type?: string
+  title?: string
+  name?: string
+  release_date?: string | null
+  first_air_date?: string | null
+  overview?: string
+  poster_path: string | null
+  backdrop_path: string | null
+  vote_average?: number
+}
+
+function tmdbImageUrl(path: string | null, size: string): string | null {
+  return path ? `${IMAGE_BASE}/${size}${path}` : null
+}
+
+function toRequestable(item: TmdbListItem, mediaType: RequestMediaType): RequestableTitle {
+  const date = mediaType === 'movie' ? item.release_date : item.first_air_date
+  return {
+    tmdbId: item.id,
+    mediaType,
+    title: (mediaType === 'movie' ? item.title : item.name) ?? '',
+    year: date ? parseInt(date.slice(0, 4), 10) || null : null,
+    overview: item.overview ?? '',
+    posterUrl: tmdbImageUrl(item.poster_path, 'w342'),
+    backdropUrl: tmdbImageUrl(item.backdrop_path, 'w1280'),
+    rating: item.vote_average ?? null
+  }
+}
+
+const DISCOVER_TTL_MS = 60 * 60 * 1000
+let discoverCache: { at: number; value: RequestDiscover } | null = null
+
+// Trending and popular rows for the Requests tab, cached for an hour.
+export async function discoverForRequests(): Promise<RequestDiscover | null> {
+  if (discoverCache && Date.now() - discoverCache.at < DISCOVER_TTL_MS) return discoverCache.value
+  const lists: [string, string, RequestMediaType][] = [
+    ['Trending Movies', '/trending/movie/week', 'movie'],
+    ['Trending Shows', '/trending/tv/week', 'tv'],
+    ['Popular Movies', '/movie/popular', 'movie'],
+    ['Popular Shows', '/tv/popular', 'tv']
+  ]
+  const sections: RequestDiscover['sections'] = []
+  for (const [title, path, mediaType] of lists) {
+    const page = await tmdbGet<{ results: TmdbListItem[] }>(path)
+    if (!page) return null
+    sections.push({ title, items: page.results.map((r) => toRequestable(r, mediaType)) })
+  }
+  discoverCache = { at: Date.now(), value: { sections } }
+  return discoverCache.value
+}
+
+export async function searchForRequests(query: string): Promise<RequestableTitle[] | null> {
+  const page = await tmdbGet<{ results: TmdbListItem[] }>('/search/multi', {
+    query,
+    include_adult: 'false'
+  })
+  if (!page) return null
+  return page.results
+    .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+    .slice(0, 30)
+    .map((r) => toRequestable(r, r.media_type as RequestMediaType))
+}
+
+export interface RequestTitleInfo extends RequestableTitle {
+  genres: string[]
+  runtimeMinutes: number | null
+  seasons: { number: number; name: string; episodeCount: number; airYear: number | null }[]
+}
+
+export async function requestTitleInfo(
+  mediaType: RequestMediaType,
+  tmdbId: number
+): Promise<RequestTitleInfo | null> {
+  const details = await tmdbGet<
+    TmdbListItem & {
+      genres?: TmdbGenre[]
+      runtime?: number | null
+      episode_run_time?: number[]
+      seasons?: {
+        season_number: number
+        name: string
+        episode_count: number
+        air_date: string | null
+      }[]
+    }
+  >(`/${mediaType}/${tmdbId}`)
+  if (!details) return null
+  return {
+    ...toRequestable(details, mediaType),
+    genres: (details.genres ?? []).map((g) => g.name),
+    runtimeMinutes: details.runtime ?? details.episode_run_time?.[0] ?? null,
+    seasons: (details.seasons ?? [])
+      .filter((season) => season.season_number > 0)
+      .map((season) => ({
+        number: season.season_number,
+        name: season.name,
+        episodeCount: season.episode_count,
+        airYear: season.air_date ? parseInt(season.air_date.slice(0, 4), 10) || null : null
+      }))
+  }
 }

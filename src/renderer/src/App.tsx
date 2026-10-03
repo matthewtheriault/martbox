@@ -13,6 +13,7 @@ const ShowDetail = lazy(() => import('./pages/ShowDetail'))
 const Player = lazy(() => import('./pages/Player'))
 const Activity = lazy(() => import('./pages/Activity'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Requests = lazy(() => import('./pages/Requests'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Search = lazy(() => import('./pages/Search'))
 
@@ -37,6 +38,7 @@ export default function App(): JSX.Element {
                 <Route path="/play/:mediaType/:id" element={<Player />} />
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/requests" element={<Requests />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/search" element={<Search />} />
               </Routes>

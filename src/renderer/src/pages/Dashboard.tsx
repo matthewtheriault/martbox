@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { DashboardDevice, DashboardSnapshot, DashboardStream } from '../../../shared/types'
+import type {
+  DashboardDevice,
+  DashboardSnapshot,
+  DashboardStream,
+  MediaRequest
+} from '../../../shared/types'
 import { useProfile } from '../lib/ProfileContext'
 import { usePort } from '../lib/PortContext'
 import { formatTime, imageUrl } from '../lib/media'
+import { REQUEST_STATUS_LABEL, seasonsLabel } from './Requests'
 
 // The host's live view (admin only): who's watching what right now and how
 // the upload is coping. Data comes from src/main/dashboard.ts, refreshed
@@ -202,6 +208,95 @@ function StreamCard({
   )
 }
 
+function RequestRow({
+  request,
+  onChanged
+}: {
+  request: MediaRequest
+  onChanged: () => void
+}): JSX.Element {
+  const { activeProfile } = useProfile()
+  const [declining, setDeclining] = useState(false)
+  const [note, setNote] = useState('')
+  const act = (promise: Promise<void>): void => {
+    promise.then(onChanged).catch(() => {})
+  }
+  const tone =
+    request.status === 'available' || request.status === 'approved'
+      ? 'good'
+      : request.status === 'pending'
+        ? 'warn'
+        : 'plain'
+  return (
+    <div className="dash-request">
+      <div className="dash-request-poster">
+        {request.posterUrl && <img src={request.posterUrl} alt="" />}
+      </div>
+      <div className="dash-request-body">
+        <div className="dash-stream-title">
+          {request.title}
+          {request.year && <span className="dash-dim"> ({request.year})</span>}
+        </div>
+        <div className="dash-dim">
+          {request.mediaType === 'movie' ? 'Movie' : 'TV'}
+          {request.seasons ? ` · ${seasonsLabel(request.seasons)}` : ''} ·{' '}
+          {request.profileName || 'Unknown user'} · {timeAgo(request.createdAt)}
+        </div>
+        {request.note && <div className="dash-dim">Note: {request.note}</div>}
+        {declining && (
+          <div className="dash-stop-form">
+            <input
+              type="text"
+              placeholder="Why? (optional, they'll see it)"
+              value={note}
+              maxLength={300}
+              onChange={(e) => setNote(e.target.value)}
+              autoFocus
+            />
+            <button
+              className="btn-danger"
+              onClick={() =>
+                act(window.api.requests.setStatus(activeProfile.id, request.id, 'declined', note))
+              }
+            >
+              Decline
+            </button>
+            <button className="btn-secondary" onClick={() => setDeclining(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="dash-request-actions">
+        <span className={`dash-badge dash-badge-${tone}`}>
+          {REQUEST_STATUS_LABEL[request.status]}
+        </span>
+        {request.status === 'pending' && !declining && (
+          <>
+            <button
+              className="btn-primary dash-small-btn"
+              onClick={() =>
+                act(window.api.requests.setStatus(activeProfile.id, request.id, 'approved', null))
+              }
+            >
+              Approve
+            </button>
+            <button className="btn-secondary dash-small-btn" onClick={() => setDeclining(true)}>
+              Decline
+            </button>
+          </>
+        )}
+        <button
+          className="dash-stop"
+          onClick={() => act(window.api.requests.remove(activeProfile.id, request.id))}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function pathLabel(device: DashboardDevice): { text: string; tone: 'good' | 'warn' | 'plain' } {
   if (device.online === false) return { text: 'Offline', tone: 'plain' }
   switch (device.path) {
@@ -223,6 +318,15 @@ export default function Dashboard(): JSX.Element | null {
   const [data, setData] = useState<DashboardSnapshot | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [capacityDraft, setCapacityDraft] = useState<string | null>(null)
+  const [requests, setRequests] = useState<MediaRequest[]>([])
+  const [showAllRequests, setShowAllRequests] = useState(false)
+
+  const loadRequests = (): void => {
+    window.api.requests
+      .listAll(activeProfile.id)
+      .then(setRequests)
+      .catch(() => {})
+  }
 
   useEffect(() => {
     if (!activeProfile.isAdmin) {
@@ -241,7 +345,13 @@ export default function Dashboard(): JSX.Element | null {
         .catch(() => {})
     }
     load()
-    const timer = setInterval(load, REFRESH_MS)
+    loadRequests()
+    let ticks = 0
+    const timer = setInterval(() => {
+      load()
+      // Requests change rarely; every 10 s is plenty.
+      if (++ticks % 5 === 0) loadRequests()
+    }, REFRESH_MS)
     return () => {
       cancelled = true
       clearInterval(timer)
@@ -284,6 +394,40 @@ export default function Dashboard(): JSX.Element | null {
           : `${streams.length} playing` +
             (streamingNow ? ` · ${formatMbps(network.currentMbps)} upload` : '')}
       </p>
+
+      <section className="dash-section">
+        <div className="dash-section-head">
+          <h2>
+            Requests
+            {requests.some((r) => r.status === 'pending') && (
+              <span className="dash-count">
+                {requests.filter((r) => r.status === 'pending').length} new
+              </span>
+            )}
+          </h2>
+          {requests.some((r) => r.status !== 'pending') && (
+            <button className="dash-stop" onClick={() => setShowAllRequests(!showAllRequests)}>
+              {showAllRequests ? 'Show new only' : `Show all (${requests.length})`}
+            </button>
+          )}
+        </div>
+        {(() => {
+          const shown = showAllRequests ? requests : requests.filter((r) => r.status === 'pending')
+          return shown.length === 0 ? (
+            <p className="empty-state-inline">
+              {requests.length === 0
+                ? 'No requests yet. Friends can ask for movies and shows from the Requests tab.'
+                : 'Nothing new to review.'}
+            </p>
+          ) : (
+            <div className="dash-requests">
+              {shown.map((request) => (
+                <RequestRow key={request.id} request={request} onChanged={loadRequests} />
+              ))}
+            </div>
+          )
+        })()}
+      </section>
 
       <section className="dash-section">
         <h2>Now Playing</h2>

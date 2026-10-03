@@ -35,6 +35,12 @@ const icons = {
       <path d="M3 12h4l2-7 6 14 2-7h4" />
     </>
   ),
+  requests: (
+    <>
+      <path d="M12 5v14M5 12h14" />
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+    </>
+  ),
   dashboard: (
     <>
       <path d="M4 15a8 8 0 1 1 16 0" />
@@ -53,25 +59,30 @@ function Icon({ name }: { name: keyof typeof icons }): JSX.Element {
 }
 
 export default function Sidebar(): JSX.Element {
-  const { activeProfile, switchProfile } = useProfile()
+  const { activeProfile, switchProfile, isHost } = useProfile()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [updateAvailable, setUpdateAvailable] = useState(false)
-  // The dashboard lives on the server: shown only when this app is it.
-  const [isServer, setIsServer] = useState(false)
+  const [pendingRequests, setPendingRequests] = useState(0)
 
   const runSearch = (): void => {
     const trimmed = query.trim()
     if (trimmed) navigate(`/search?q=${encodeURIComponent(trimmed)}`)
   }
 
+  // New requests waiting for the admin, shown on the Dashboard link.
   useEffect(() => {
-    if (!activeProfile.isAdmin) return
-    window.api.dashboard
-      .snapshot(activeProfile.id)
-      .then((snapshot) => setIsServer(snapshot !== null))
-      .catch(() => setIsServer(false))
-  }, [activeProfile.id, activeProfile.isAdmin])
+    if (!activeProfile.isAdmin || !isHost) return
+    const load = (): void => {
+      window.api.requests
+        .pendingCount(activeProfile.id)
+        .then(setPendingRequests)
+        .catch(() => {})
+    }
+    load()
+    const timer = setInterval(load, 30_000)
+    return () => clearInterval(timer)
+  }, [activeProfile.id, activeProfile.isAdmin, isHost])
 
   useEffect(() => {
     window.api.updates
@@ -116,10 +127,15 @@ export default function Sidebar(): JSX.Element {
             <span>Activity</span>
           </NavLink>
         )}
-        {activeProfile.isAdmin && isServer && (
+        <NavLink to="/requests" className="sidebar-link">
+          <Icon name="requests" />
+          <span>Requests</span>
+        </NavLink>
+        {activeProfile.isAdmin && isHost && (
           <NavLink to="/dashboard" className="sidebar-link">
             <Icon name="dashboard" />
             <span>Dashboard</span>
+            {pendingRequests > 0 && <span className="sidebar-count">{pendingRequests}</span>}
           </NavLink>
         )}
       </nav>
