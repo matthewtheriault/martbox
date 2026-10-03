@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MediaProbe } from './ffprobe'
-import { decidePlayback, type ClientCaps, type PlaybackInput } from './playback'
+import { decidePlayback, toneMapFilters, type ClientCaps, type PlaybackInput } from './playback'
 
 const APPLE_TV_4K: ClientCaps = {
   videoCodecs: ['h264', 'hevc'],
@@ -123,5 +123,16 @@ describe('decidePlayback', () => {
   it('falls back when a method already failed, or the MKV has no index', () => {
     expect(decidePlayback(input({ avoid: ['remux'] })).method).toBe('transcode')
     expect(decidePlayback(input({ canRemux: false })).method).toBe('transcode')
+  })
+})
+
+describe('toneMapFilters', () => {
+  it('maps HDR10 and HLG to SDR, and leaves SDR alone', () => {
+    const hdr10 = toneMapFilters(probe({ hdr: 'hdr10' }))
+    expect(hdr10[0]).toContain('tin=smpte2084')
+    expect(hdr10).toContain('tonemap=tonemap=mobius:desat=0')
+    expect(hdr10[hdr10.length - 1]).toBe('zscale=t=bt709:m=bt709:r=tv')
+    expect(toneMapFilters(probe({ hdr: 'hlg' }))[0]).toContain('tin=arib-std-b67')
+    expect(toneMapFilters(probe({ hdr: null }))).toEqual([])
   })
 })
