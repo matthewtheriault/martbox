@@ -127,6 +127,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 |---|---|---|---|
 | 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
 | 1 | Remote access v2 — in this order: users/login codes ✓, Tailscale speed ✓, iPhone/Apple TV sign-in, dashboard v1, 4K/HDR + HW transcode, dashboard v2/v3 | all | 5–7 wks |
+| 1c | Requests: friends request movies/shows in MartBox; admin handles them in the Dashboard (replaces RQSTMart) | iPhone, Apple TV, desktop; Fire TV with Phase 3 | 1–2 wks |
 | 1b | Live Channels: your own TV network from the library (ErsatzTV-style always-on channels + guide) | iPhone, Apple TV, desktop; Fire TV with Phase 3 | 1–2 wks |
 | 2 | Design foundations: colour palette, type, spacing rules (no restyle yet) | all | 2–4 days |
 | 3 | Fire TV app first, then the Android phone layout (one codebase) | Fire TV, Android | 8–12 wks |
@@ -170,6 +171,26 @@ and security review (done), Tailscale speed and access rules (done),
 iPhone/Apple TV sign-in (unblocks "require a login"), dashboard v1 (Now
 Playing + Network, the measuring tool for the next part), 4K/HDR and
 transcoding, dashboard v2/v3.
+
+**Phase 1c — Requests (before 1b).** RQSTMart built into MartBox, so friends
+need one app. Done when a friend requests a show from their iPhone, it
+appears in the Dashboard, and once the show is added and scanned the friend
+sees it as Available with a Play button.
+- Requests tab in the apps: trending/popular/search via the server (it
+  already talks to TMDB for the library, so no key ships in any app), detail
+  page, request a movie or specific seasons of a show.
+- Signed in with the MartBox login code already: no name entry, no separate
+  Tailscale key. Titles already in the library show "On MartBox — Play";
+  duplicates show "Already requested by …".
+- Friends see their requests' status: Requested → Approved → Available
+  (or Declined, with the admin's note).
+- Dashboard Requests panel with a new-count badge: approve, decline (with a
+  note), delete. A library scan that finds the title marks it Available
+  automatically. No phone notifications; optionally a desktop notification
+  on the server PC.
+- Server: `requests` table (user, TMDB id, type, seasons, status, note,
+  timestamps), TMDB browse/search endpoints for signed-in devices.
+- RQSTMart (separate app, ntfy push) is retired once this ships.
 
 **Phase 1b — Live Channels.** Your own TV network, like ErsatzTV: always-on
 custom channels made only from movies and shows already in the server's
