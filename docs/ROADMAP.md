@@ -191,6 +191,9 @@ sees it as Available with a Play button.
 - Server: `requests` table (user, TMDB id, type, seasons, status, note,
   timestamps), TMDB browse/search endpoints for signed-in devices.
 - RQSTMart (separate app, ntfy push) is retired once this ships.
+- **Built** (server 0.8.0, iPhone build 16, Apple TV build 19): server
+  `src/main/requests.ts`, desktop Requests page + Dashboard panel, iPhone
+  and Apple TV Requests tabs. Fire TV gets it with Phase 3.
 
 **Phase 1b — Live Channels.** Your own TV network, like ErsatzTV: always-on
 custom channels made only from movies and shows already in the server's
