@@ -43,6 +43,7 @@ import {
 import { looksLikeLoginCode } from './authCore'
 import { handleClientStatus, redeemLoginCode, setPendingLoginCode } from './clientSession'
 import { scanAndMatchLibrary } from './library'
+import { deleteChannel, listChannels, rebuildAllChannels, saveChannel } from './channels'
 import {
   deleteRequest,
   listRequests,
@@ -85,6 +86,9 @@ import {
   type ServerCompatibility
 } from '../shared/remoteAccess'
 import type {
+  ChannelConfig,
+  ChannelGuide,
+  ChannelNow,
   LoginCodeResult,
   MediaRequest,
   MediaRequestStatus,
@@ -127,6 +131,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await scanAndMatchLibrary(id, (progress) => {
       mainWindow.webContents.send('library:scanProgress', progress)
     })
+    // New episodes and movies join their Live Channels.
+    void rebuildAllChannels()
   })
 
   ipcMain.handle('movies:list', (_e, libraryId?: number) => dataSource().listMovies(libraryId))
@@ -643,6 +649,31 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await serverCall(`/api/requests/${id}?${profileQuery(profileId, pin)}`, { method: 'DELETE' })
     }
   )
+
+  // --- Live Channels ---
+
+  ipcMain.handle('channels:guide', async (_e, from: number, to: number) =>
+    okOrThrow<ChannelGuide>(await serverCall(`/api/channels/guide?from=${from}&to=${to}`))
+  )
+  ipcMain.handle('channels:now', async (_e, id: number) =>
+    okOrThrow<ChannelNow>(await serverCall(`/api/channels/${id}/now`))
+  )
+  // Building channels is the admin's, on the server PC.
+  ipcMain.handle('channels:list', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    return listChannels()
+  })
+  ipcMain.handle(
+    'channels:save',
+    (_e, requestingProfileId: number, id: number | null, config: ChannelConfig) => {
+      requireHostAdmin(requestingProfileId)
+      return saveChannel(id, config)
+    }
+  )
+  ipcMain.handle('channels:delete', (_e, requestingProfileId: number, id: number) => {
+    requireHostAdmin(requestingProfileId)
+    deleteChannel(id)
+  })
 
   // Admin, on the server PC.
   ipcMain.handle('requests:listAll', (_e, requestingProfileId: number) => {

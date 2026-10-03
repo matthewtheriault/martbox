@@ -416,3 +416,54 @@ export interface RequestTitleDetails extends RequestableTitle {
   // Open requests for this title, from anyone.
   requests: MediaRequest[]
 }
+
+// --- Live Channels (always-on channels built from the library) ---
+
+// What a channel plays: a show's episodes, or the movies matching a filter
+// (all of them when no filter is set).
+export type ChannelSource =
+  | { kind: 'show'; showId: number }
+  | { kind: 'movies'; genre?: string | null; decade?: number | null; collectionId?: number | null }
+
+export interface ChannelConfig {
+  name: string
+  number: number
+  sources: ChannelSource[]
+  order: 'shuffle' | 'inOrder'
+  // Caps the quality a channel streams at, so one left playing all day
+  // doesn't send the original 4K the whole time.
+  maxQuality: 'auto' | '1080' | '720' | '480'
+}
+
+export interface Channel extends ChannelConfig {
+  id: number
+  itemCount: number
+  // One full pass through everything the channel plays.
+  cycleSeconds: number
+}
+
+export interface ChannelProgram {
+  mediaType: MediaType
+  mediaId: number
+  title: string
+  // e.g. "S2 · E5 · Title" for episodes, the year for movies.
+  subtitle: string
+  posterPath: string | null
+  // Unix ms.
+  start: number
+  end: number
+}
+
+export interface ChannelNow {
+  channel: Channel
+  program: ChannelProgram
+  // How far into the program it is right now.
+  offsetSeconds: number
+  next: ChannelProgram | null
+}
+
+export interface ChannelGuide {
+  from: number
+  to: number
+  channels: { channel: Channel; programs: ChannelProgram[] }[]
+}

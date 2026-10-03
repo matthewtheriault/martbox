@@ -14,12 +14,16 @@ const Player = lazy(() => import('./pages/Player'))
 const Activity = lazy(() => import('./pages/Activity'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Requests = lazy(() => import('./pages/Requests'))
+const Live = lazy(() => import('./pages/Live'))
+const LivePlayer = lazy(() => import('./pages/LivePlayer'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Search = lazy(() => import('./pages/Search'))
 
 export default function App(): JSX.Element {
   const location = useLocation()
-  const isPlayerRoute = location.pathname.startsWith('/play/')
+  // Full-screen pages: the player, and watching a Live Channel.
+  const isPlayerRoute =
+    location.pathname.startsWith('/play/') || /^\/live\/\d+/.test(location.pathname)
 
   return (
     <ProfileProvider>
@@ -39,6 +43,8 @@ export default function App(): JSX.Element {
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/requests" element={<Requests />} />
+                <Route path="/live" element={<Live />} />
+                <Route path="/live/:id" element={<LivePlayer />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/search" element={<Search />} />
               </Routes>
