@@ -39,6 +39,7 @@ import {
   titleDetails
 } from './requests'
 import { discoverForRequests, requestTitleInfo, searchForRequests } from './tmdb'
+import { channelGuide, channelNow, rebuildAllChannels } from './channels'
 import { randomBytes } from 'crypto'
 import { app, Notification } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
@@ -727,6 +728,33 @@ function canActAsProfile(res: express.Response, profileId: number, pin: string |
   return hasProfileAccess(res, profileId, pin)
 }
 
+// --- Live Channels (channels.ts) ---
+
+const GUIDE_MAX_MS = 12 * 60 * 60 * 1000
+
+function registerChannelRoutes(app: express.Express): void {
+  // Every channel's programs between from and to (Unix ms; default: the
+  // last half hour to three hours ahead).
+  app.get('/api/channels/guide', (req, res) => {
+    const now = Date.now()
+    const from = parseInt(String(req.query.from ?? ''), 10) || now - 30 * 60 * 1000
+    let to = parseInt(String(req.query.to ?? ''), 10) || now + 3 * 60 * 60 * 1000
+    if (to <= from) to = from + 60 * 60 * 1000
+    res.json(channelGuide(from, Math.min(to, from + GUIDE_MAX_MS)))
+  })
+
+  // What a channel is playing right now and how far in — what tuning in
+  // plays (through /api/playback, capped at the channel's quality).
+  app.get('/api/channels/:id/now', (req, res) => {
+    const now = channelNow(parseInt(req.params.id, 10))
+    if (!now) {
+      res.status(404).json({ error: 'No such channel, or it has nothing to play' })
+      return
+    }
+    res.json(now)
+  })
+}
+
 // --- Requests (requests.ts): friends ask for movies and shows ---
 
 // Who's making a request: a signed-in device is its own user; this PC or an
@@ -1172,6 +1200,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
 
   registerMetadataApi(app)
   registerRequestRoutes(app)
+  registerChannelRoutes(app)
   registerHlsRoutes(app, {
     ffmpegPath,
     resolveMediaPath,
@@ -1390,6 +1419,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // the probe's latency (it awaits the same cached promise, already
   // resolved by the time anyone's actually pressed play).
   void detectHardwareEncoder()
+  // Channels pick up anything added while MartBox was closed.
+  void rebuildAllChannels()
 
   const listen = (): Promise<{ server: Server; port: number }> =>
     new Promise((resolveListen) => {

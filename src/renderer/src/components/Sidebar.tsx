@@ -35,6 +35,12 @@ const icons = {
       <path d="M3 12h4l2-7 6 14 2-7h4" />
     </>
   ),
+  live: (
+    <>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="m8 2 4 4 4-4" />
+    </>
+  ),
   requests: (
     <>
       <path d="M12 5v14M5 12h14" />
@@ -127,6 +133,10 @@ export default function Sidebar(): JSX.Element {
             <span>Activity</span>
           </NavLink>
         )}
+        <NavLink to="/live" className="sidebar-link">
+          <Icon name="live" />
+          <span>Live</span>
+        </NavLink>
         <NavLink to="/requests" className="sidebar-link">
           <Icon name="requests" />
           <span>Requests</span>

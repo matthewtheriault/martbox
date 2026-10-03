@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActivityItem,
+  Channel,
+  ChannelConfig,
+  ChannelGuide,
+  ChannelNow,
   DashboardSnapshot,
   MediaRequest,
   MediaRequestStatus,
@@ -153,6 +157,15 @@ const api = {
         ipcRenderer.removeListener('iptv:healthProgress', listener)
       }
     }
+  },
+  channels: {
+    guide: (from: number, to: number) => invoke<ChannelGuide>('channels:guide', from, to),
+    now: (id: number) => invoke<ChannelNow>('channels:now', id),
+    list: (requestingProfileId: number) => invoke<Channel[]>('channels:list', requestingProfileId),
+    save: (requestingProfileId: number, id: number | null, config: ChannelConfig) =>
+      invoke<Channel>('channels:save', requestingProfileId, id, config),
+    remove: (requestingProfileId: number, id: number) =>
+      invoke<void>('channels:delete', requestingProfileId, id)
   },
   requests: {
     discover: () => invoke<RequestDiscover>('requests:discover'),
