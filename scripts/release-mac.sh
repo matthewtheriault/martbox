@@ -9,6 +9,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Two runs at once share release/ and clobber each other's build output
+# (it happened with 0.5.1). Refuse to start while another one is running.
+LOCK_DIR="${TMPDIR:-/tmp}/martbox-release-mac.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo "error: another release:mac is already running (lock: $LOCK_DIR). If it isn't, remove the lock folder and retry." >&2
+  exit 1
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+
 VERSION="$(node -p "require('./package.json').version")"
 TAG="v${VERSION}"
 
