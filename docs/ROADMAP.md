@@ -127,7 +127,7 @@ supported everywhere, on-screen overlay auto-hides when one connects.
 |---|---|---|---|
 | 0.5 | In-app updates (electron-updater + GitHub Releases, backup before install, server/app version check) | Windows, macOS | 1 session |
 | 1 | Remote access v2 — in this order: users/login codes ✓, Tailscale speed ✓, iPhone/Apple TV sign-in, dashboard v1, 4K/HDR + HW transcode, dashboard v2/v3 | all | 5–7 wks |
-| 1b | Live Channels: your own TV network (ErsatzTV-style always-on channels + guide) | iPhone, Apple TV, desktop; Fire TV with Phase 3 | 1–2 wks |
+| 1b | Live Channels: your own TV network from the library (ErsatzTV-style always-on channels + guide) | iPhone, Apple TV, desktop; Fire TV with Phase 3 | 1–2 wks |
 | 2 | Design foundations: colour palette, type, spacing rules (no restyle yet) | all | 2–4 days |
 | 3 | Fire TV app first, then the Android phone layout (one codebase) | Fire TV, Android | 8–12 wks |
 | 3b | Optional: MartBox Web for friends who already run Tailscale | browser | 1–2 wks |
@@ -172,8 +172,9 @@ Playing + Network, the measuring tool for the next part), 4K/HDR and
 transcoding, dashboard v2/v3.
 
 **Phase 1b — Live Channels.** Your own TV network, like ErsatzTV: always-on
-channels built from the library that friends tune into mid-show, with a TV
-guide. Done when a friend opens the guide on an Apple TV, joins "Simpsons
+custom channels made only from movies and shows already in the server's
+library, which friends tune into mid-show, with a TV guide. No outside TV or
+IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the guide on an Apple TV, joins "Simpsons
 24/7" partway through an episode, and channel up/down works with the remote.
 - Admin builds channels in the desktop app: pick shows, collections, a
   genre or decade; shuffle or in order; optional time blocks ("cartoons
@@ -185,8 +186,8 @@ guide. Done when a friend opens the guide on an Apple TV, joins "Simpsons
   setting), so channels play as well as anything else.
 - Apps: a Live tab with a guide grid (channels × time, now/next), channel
   up/down and an info banner on the remote. Fire TV gets it with Phase 3.
-- Later: filler between items (trailers, bumpers), a logo overlay, an M3U +
-  XMLTV export so channels also show up in other players.
+- Later: filler between items (trailers, bumpers from the library), a logo
+  overlay.
 
 **Phase 2 — Design foundations.** Done when the palette, type scale, spacing
 and corner rules are written down as design tokens and shown on one sample
