@@ -324,8 +324,14 @@ It doubles as the measuring tool for the Phase 2 speed work, so a first
 version ships early.
 
 **Build order**
-- **v1 (with Phases 1–2):** Now Playing + Network panels. Needs users
-  (Phase 1) and the Phase 0 diagnostics.
+- **v1 (with Phases 1–2):** Now Playing + Network panels. **Built**
+  (`src/main/dashboard.ts`, Dashboard page in the host app): per-stream
+  device, title, progress, playing/paused/buffering, direct/remux/transcode
+  and why, live Mbps, stalls in the last 5 minutes, and Stop with a message;
+  live upload graph (5 min) against an upload speed the admin enters;
+  per-device Tailscale path, speed test, current rate and data today. Apps
+  send a heartbeat every 10 s (iPhone build 15 / Apple TV build 18); older
+  apps show up from their progress saves.
 - **v2 (with Phase 4):** Hardware + transcoding panels.
 - **v3 (after Phase 4):** History, stats, alerts, and the dashboard on
   mobile for admin devices.

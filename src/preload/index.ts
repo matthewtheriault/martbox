@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActivityItem,
+  DashboardSnapshot,
   AppSettings,
   AppUpdateStatus,
   ContinueWatchingItem,
@@ -146,6 +147,14 @@ const api = {
         ipcRenderer.removeListener('iptv:healthProgress', listener)
       }
     }
+  },
+  dashboard: {
+    snapshot: (requestingProfileId: number) =>
+      invoke<DashboardSnapshot | null>('dashboard:snapshot', requestingProfileId),
+    stopStream: (requestingProfileId: number, key: string, message: string) =>
+      invoke<boolean>('dashboard:stopStream', requestingProfileId, key, message),
+    setUploadCapacity: (requestingProfileId: number, mbps: number | null) =>
+      invoke<void>('dashboard:setUploadCapacity', requestingProfileId, mbps)
   },
   activity: {
     list: () => invoke<ActivityItem[]>('activity:list')

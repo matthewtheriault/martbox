@@ -297,3 +297,62 @@ export interface ActivityItem {
   posterPath: string | null
   backdropPath: string | null
 }
+
+// --- Server dashboard (host app, admin only) ---
+
+export type StreamState = 'playing' | 'paused' | 'buffering'
+
+export interface DashboardStream {
+  // Stable id for this stream, used to stop it.
+  key: string
+  deviceName: string
+  profileName: string
+  profileAvatarId: string | null
+  mediaType: MediaType
+  mediaId: number
+  title: string
+  // e.g. "S2 · E5 · The One With..." for episodes; the year for movies.
+  subtitle: string
+  posterPath: string | null
+  positionSeconds: number
+  durationSeconds: number | null
+  state: StreamState
+  // How it's being sent: see src/main/playback.ts. null = not known (an
+  // older app, or playback on this PC).
+  method: 'direct' | 'remux' | 'transcode' | null
+  reason: string | null
+  // Upload going to this stream right now.
+  mbps: number
+  // Times playback stalled to buffer in the last 5 minutes.
+  recentStalls: number
+  startedAt: number
+}
+
+export interface DashboardDevice {
+  deviceId: number
+  deviceName: string
+  profileName: string
+  // How traffic reaches it over Tailscale; null = unknown (no address
+  // reported, or remote access is off).
+  path: 'direct' | 'relayed' | 'idle' | null
+  online: boolean | null
+  speedMbps: number | null
+  latencyMs: number | null
+  speedTestedAt: string | null
+  lastSeenAt: string | null
+  // Sent to this device since midnight (or since MartBox started).
+  bytesToday: number
+  mbps: number
+}
+
+export interface DashboardSnapshot {
+  streams: DashboardStream[]
+  network: {
+    // Total upload to remote devices, one point every 2 s over 5 minutes.
+    samples: { t: number; mbps: number }[]
+    currentMbps: number
+    // What the admin says their internet upload is, for "18 of 500 Mbps".
+    uploadCapacityMbps: number | null
+    devices: DashboardDevice[]
+  }
+}

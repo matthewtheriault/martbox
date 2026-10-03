@@ -227,6 +227,15 @@ export function setUserDisabled(profileId: number, disabled: boolean): string[] 
 
 // Tailnet addresses of every device a user had — for removing them from
 // the tailnet before the profile (and, by cascade, its devices) is deleted.
+// Matches a device to its Tailscale peer status for the dashboard; never
+// shown.
+export function deviceTailnetAddr(deviceId: number): string | null {
+  const row = db.prepare('SELECT tailscale_addr FROM devices WHERE id = ?').get(deviceId) as
+    | { tailscale_addr: string | null }
+    | undefined
+  return row?.tailscale_addr ?? null
+}
+
 export function deviceAddrsForProfile(profileId: number): string[] {
   return (
     db

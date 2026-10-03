@@ -41,6 +41,8 @@ export interface PeerConnection {
   online: boolean
   path: 'direct' | 'relayed' | 'idle'
   relayRegion?: string
+  // Tailnet address, for matching peers to signed-in devices; never shown.
+  addr?: string
 }
 
 export interface RemoteAccessStatus {

@@ -53,11 +53,15 @@ import { verifyChannels, isHealthCheckRunning } from './iptvHealth'
 import { refreshIptv } from './iptv'
 import {
   DEFAULT_HLS_CACHE_DIR,
+  dashboardSnapshot,
   getMediaServerPort,
   getMediaServerRemotePort,
   hlsCacheDir,
   isRemoteLoginRequired,
-  setHlsCacheDir
+  noteLocalPlayback,
+  setHlsCacheDir,
+  setUploadCapacityMbps,
+  stopDashboardStream
 } from './mediaServer'
 import {
   startSidecar,
@@ -291,7 +295,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       position: number,
       duration: number,
       pin?: string | null
-    ) => dataSource().saveProgress(profileId, mediaType, mediaId, position, duration, pin)
+    ) => {
+      // Playback on this PC shows on the dashboard as "This PC".
+      if (getSetting('remoteAccessMode') !== 'client') {
+        noteLocalPlayback(profileId, mediaType, mediaId, position)
+      }
+      return dataSource().saveProgress(profileId, mediaType, mediaId, position, duration, pin)
+    }
   )
   ipcMain.handle(
     'progress:get',
@@ -557,6 +567,29 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const requester = repository.listProfiles().find((p) => p.id === requestingProfileId)
     if (!requester?.isAdmin) throw new Error('Only the admin can manage users')
   }
+
+  // --- Dashboard (host only, admin only) ---
+
+  // null in client mode: the dashboard lives on the server.
+  ipcMain.handle('dashboard:snapshot', (_e, requestingProfileId: number) => {
+    if (getSetting('remoteAccessMode') === 'client') return null
+    requireHostAdmin(requestingProfileId)
+    return dashboardSnapshot()
+  })
+  ipcMain.handle(
+    'dashboard:stopStream',
+    (_e, requestingProfileId: number, key: string, message: string) => {
+      requireHostAdmin(requestingProfileId)
+      return stopDashboardStream(key, message)
+    }
+  )
+  ipcMain.handle(
+    'dashboard:setUploadCapacity',
+    (_e, requestingProfileId: number, mbps: number | null) => {
+      requireHostAdmin(requestingProfileId)
+      setUploadCapacityMbps(mbps)
+    }
+  )
 
   ipcMain.handle('users:listDevices', (_e, requestingProfileId: number) => {
     requireHostAdmin(requestingProfileId)

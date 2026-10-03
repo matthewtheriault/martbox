@@ -103,6 +103,9 @@ export interface HlsDeps {
   // drive instead of the system drive).
   cacheDir(): string
   log(message: string): void
+  // Called for every playlist and segment request with what it's for
+  // ('movie:12'); false = refuse it (the admin stopped this stream).
+  onMediaRequest(req: express.Request, res: express.Response, mediaKey: string): boolean
 }
 
 interface Run {
@@ -158,6 +161,13 @@ function stopSession(session: Session): void {
   killRun(session)
   // ffmpeg may still hold the last segment open for a moment after kill.
   setTimeout(() => rmSync(session.dir, { recursive: true, force: true }), 2000)
+}
+
+// The admin stopped this viewer's stream from the dashboard.
+export function stopHlsSessionsFor(owner: string, mediaKey: string): void {
+  for (const session of [...sessions.values()]) {
+    if (session.owner === owner && session.mediaKey === mediaKey) stopSession(session)
+  }
 }
 
 export function stopAllHlsSessions(): void {
@@ -706,6 +716,10 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
     }
     const owner = deps.ownerOf(res)
     const mediaKey = `${mediaType}:${id}`
+    if (!deps.onMediaRequest(req, res, mediaKey)) {
+      res.status(403).json({ error: 'stopped' })
+      return
+    }
     const variant = variantFromQuery(req.query)
     let session = [...sessions.values()].find((s) => s.owner === owner && s.mediaKey === mediaKey)
     if (session && session.variantKey !== variantKey(variant)) {
@@ -745,6 +759,10 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
     const session = sessions.get(req.params.sid)
     if (!session || session.owner !== deps.ownerOf(res)) {
       res.status(404).end()
+      return
+    }
+    if (!deps.onMediaRequest(req, res, session.mediaKey)) {
+      res.status(403).end()
       return
     }
     session.lastAccess = Date.now()
