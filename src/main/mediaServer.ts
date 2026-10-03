@@ -71,14 +71,16 @@ import {
   getLibrarySeenAt,
   markLibrarySeen
 } from './repository'
-import { probeFile, canDirectPlay } from './ffprobe'
+import { probeFile, canDirectPlay, type MediaProbe } from './ffprobe'
 import { readMkvKeyframes } from './mkvKeyframes'
 import {
   decidePlayback,
   type ClientCaps,
   type PlaybackMethod,
   type QualityChoice,
-  type TranscodeRung
+  type TranscodeRung,
+  SDR_COLOR_TAGS,
+  toneMapFilters
 } from './playback'
 import {
   authenticateDeviceKey,
@@ -503,14 +505,16 @@ function hlsRateArgs(rung: TranscodeRung): string[] {
 // 4-second boundaries so the VOD playlist's timeline is true, and copying
 // can only cut where the source happens to have keyframes. (Playing the
 // original untouched is the remux path in hls.ts.)
-async function hlsVideoArgs(rung: TranscodeRung): Promise<string[]> {
+async function hlsVideoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<string[]> {
   const encoder = await detectHardwareEncoder()
   const rate = hlsRateArgs(rung)
-  // Scale down only (never up), keeping the shape; 8-bit 4:2:0 is what
-  // every H.264 player and hardware encoder accepts (10-bit HDR sources
-  // included).
+  // Scale down first (never up), keeping the shape, so HDR tone mapping
+  // works on the smaller picture; 8-bit 4:2:0 is what every H.264 player
+  // and hardware encoder accepts.
   const maxWidth = Math.round((rung.height * 16) / 9 / 2) * 2
-  const scale = ['-vf', `scale=w='min(${maxWidth},iw)':h=-2,format=yuv420p`]
+  const toneMap = toneMapFilters(probe)
+  const filters = [`scale=w='min(${maxWidth},iw)':h=-2`, ...toneMap, 'format=yuv420p']
+  const scale = ['-vf', filters.join(','), ...(toneMap.length ? SDR_COLOR_TAGS : [])]
   if (!encoder) {
     const peak = Math.round(rung.kbps * 1.25)
     return [
@@ -590,11 +594,22 @@ async function streamTranscode(
   req: express.Request,
   res: express.Response,
   filePath: string,
-  videoCodec: string | null
+  probe: MediaProbe
 ): Promise<void> {
   const startSeconds = parseFloat((req.query.t as string) || '0') || 0
+  const videoCodec = probe.videoCodec
 
   const hardwareEncoder = videoCodec === 'h264' ? null : await detectHardwareEncoder()
+  // HDR re-encoded for the desktop player gets SDR colours too, at 1080p at
+  // most — tone mapping a full 4K picture on the CPU is too slow to keep up.
+  const toneMap = videoCodec === 'h264' ? [] : toneMapFilters(probe)
+  const toneMapArgs = toneMap.length
+    ? [
+        '-vf',
+        ["scale=w='min(1920,iw)':h=-2", ...toneMap, 'format=yuv420p'].join(','),
+        ...SDR_COLOR_TAGS
+      ]
+    : []
 
   const args = [
     '-ss',
@@ -605,6 +620,7 @@ async function streamTranscode(
     '0:v:0',
     '-map',
     '0:a:0?',
+    ...toneMapArgs,
     ...(videoCodec === 'h264'
       ? ['-c:v', 'copy']
       : hardwareEncoder
@@ -1208,7 +1224,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     if (directPlay) {
       streamDirect(req, res, filePath)
     } else {
-      await streamTranscode(req, res, filePath, probe.videoCodec)
+      await streamTranscode(req, res, filePath, probe)
     }
   })
 

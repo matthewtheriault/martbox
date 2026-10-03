@@ -165,3 +165,34 @@ export function decidePlayback(input: PlaybackInput): PlaybackDecision {
     avoid.length > 0 ? "the original didn't play on this device" : "this file can't be repackaged"
   )
 }
+
+// HDR10 / HLG → normal (SDR, BT.709) colours for anything we re-encode to
+// H.264: without it, HDR video converted for a phone, a Fire TV or a slow
+// connection comes out grey and washed out. Linearise, convert the BT.2020
+// colours to BT.709, then compress the brightness with the Mobius curve —
+// it keeps mid-tones as they were and only rolls off the bright highlights
+// HDR adds (it matched the original most closely in a side-by-side of
+// hable / mobius / reinhard). zscale (libzimg) is in the bundled ffmpeg on
+// both Windows and macOS. Dolby Vision profile 8 carries an HDR10/HLG base
+// layer, so it's handled the same way.
+export function toneMapFilters(probe: MediaProbe): string[] {
+  if (probe.hdr !== 'hdr10' && probe.hdr !== 'hlg') return []
+  const transfer = probe.hdr === 'hlg' ? 'arib-std-b67' : 'smpte2084'
+  return [
+    `zscale=tin=${transfer}:min=bt2020nc:pin=bt2020:rin=tv:t=linear:npl=100`,
+    'format=gbrpf32le',
+    'zscale=p=bt709',
+    'tonemap=tonemap=mobius:desat=0',
+    'zscale=t=bt709:m=bt709:r=tv'
+  ]
+}
+
+// Tags the output as SDR so players don't treat it as HDR.
+export const SDR_COLOR_TAGS = [
+  '-color_primaries',
+  'bt709',
+  '-color_trc',
+  'bt709',
+  '-colorspace',
+  'bt709'
+]

@@ -65,6 +65,20 @@ const SEEK_MARGIN_SECONDS = 0.02
 // Remuxed timestamps start this far in, so B-frames' decode times — a few
 // frames before their presentation times — never go negative at the start.
 const REMUX_TIMESTAMP_PAD = 1
+// AVPlayer never starts an HLS stream that has video but no audio (it sits
+// at 0:00 indefinitely), so a file without an audio track gets a silent one,
+// exactly as long as what's left of the video (-shortest alone isn't
+// honoured when the video is stream-copied).
+function silentAudioInput(seconds: number): string[] {
+  return [
+    '-f',
+    'lavfi',
+    '-t',
+    Math.max(0.1, seconds).toFixed(3),
+    '-i',
+    'anullsrc=channel_layout=stereo:sample_rate=48000'
+  ]
+}
 
 export type HlsVariant =
   | { kind: 'transcode'; rung: TranscodeRung }
@@ -94,8 +108,8 @@ export interface HlsDeps {
   // The MKV's keyframe times, or null if it has no usable index.
   keyframes(filePath: string): Promise<number[] | null>
   // ffmpeg video encoder arguments (hardware when available) for a size
-  // and bitrate.
-  videoArgs(rung: TranscodeRung): Promise<string[]>
+  // and bitrate; HDR sources are tone-mapped to SDR.
+  videoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<string[]>
   // Who's asking — a device id, or 'local' / 'legacy'. Sessions are only
   // served back to their owner.
   ownerOf(res: express.Response): string
@@ -117,6 +131,7 @@ interface Run {
 }
 
 interface RemuxState {
+  hasAudio: boolean
   keyframes: number[]
   // Added to a keyframe's time to get the -ss that lands exactly on it.
   seekBias: number
@@ -302,6 +317,8 @@ async function startTranscodeRun(
   killRun(session)
   const startSeconds = session.starts[startSegment]
   const playlist = `run-${startSegment}-${Date.now()}.m3u8`
+  const probe = await deps.probe(session.filePath)
+  const silent = probe.audioCodec === null
   const args = [
     '-hide_banner',
     '-loglevel',
@@ -310,11 +327,13 @@ async function startTranscodeRun(
     String(startSeconds),
     '-i',
     session.filePath,
+    ...(silent ? silentAudioInput(session.durationSeconds - startSeconds) : []),
     '-map',
     '0:v:0',
     '-map',
-    '0:a:0?',
-    ...(await deps.videoArgs(rung)),
+    silent ? '1:a:0' : '0:a:0?',
+    ...(silent ? ['-shortest'] : []),
+    ...(await deps.videoArgs(rung, probe)),
     // A keyframe exactly every segment, counted from this run's start —
     // which is itself on a segment boundary — so every run cuts at the
     // same absolute times.
@@ -456,8 +475,9 @@ function startRemuxRun(deps: HlsDeps, session: Session, startSegment: number): v
   const runId = `${startSegment}-${Date.now()}`
   const playlist = `run-${runId}.m3u8`
   const channels = remux.audioChannels ?? 2
-  const audioArgs =
-    variant.audio === 'copy'
+  const audioArgs = !remux.hasAudio
+    ? ['-c:a', 'aac', '-b:a', '64k', '-ac', '2', '-shortest']
+    : variant.audio === 'copy'
       ? ['-c:a', 'copy']
       : channels > 2
         ? // Surround stays surround: E-AC-3 plays on every Apple device and
@@ -471,10 +491,13 @@ function startRemuxRun(deps: HlsDeps, session: Session, startSegment: number): v
     ...(seek === null ? [] : ['-ss', seek.toFixed(4)]),
     '-i',
     session.filePath,
+    ...(remux.hasAudio
+      ? []
+      : silentAudioInput(session.durationSeconds - session.starts[startSegment])),
     '-map',
     '0:v:0',
     '-map',
-    '0:a:0?',
+    remux.hasAudio ? '0:a:0?' : '1:a:0',
     '-c:v',
     'copy',
     // Apple players only accept HEVC tagged hvc1 (and H.264 as avc1).
@@ -657,6 +680,7 @@ async function createSession(
     starts = remuxSegmentStarts(keyframes, duration)
     remux = {
       keyframes,
+      hasAudio: probe.audioCodec !== null,
       seekBias:
         SEEK_MARGIN_SECONDS + (probe.hasBFrames ? BFRAME_SEEK_SHIFT : 0) - probe.startSeconds,
       videoCodec: probe.videoCodec,
