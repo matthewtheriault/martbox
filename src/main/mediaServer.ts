@@ -46,6 +46,14 @@ import {
   markLibrarySeen
 } from './repository'
 import { probeFile, canDirectPlay } from './ffprobe'
+import { readMkvKeyframes } from './mkvKeyframes'
+import {
+  decidePlayback,
+  type ClientCaps,
+  type PlaybackMethod,
+  type QualityChoice,
+  type TranscodeRung
+} from './playback'
 import {
   authenticateDeviceKey,
   authenticateMediaToken,
@@ -225,7 +233,7 @@ function srtToVtt(srt: string): string {
 function streamDirect(req: express.Request, res: express.Response, filePath: string): void {
   const stat = statSync(filePath)
   const range = req.headers.range
-  const contentType = extname(filePath).toLowerCase() === '.mp4' ? 'video/mp4' : 'video/quicktime'
+  const contentType = /^\.(mp4|m4v)$/i.test(extname(filePath)) ? 'video/mp4' : 'video/quicktime'
 
   if (!range) {
     res.writeHead(200, {
@@ -329,29 +337,84 @@ function detectHardwareEncoder(): Promise<HardwareEncoder | null> {
   return hardwareEncoderPromise
 }
 
-// Bitrate caps for HLS transcodes: 1080p at most, ~8 Mbps average and 10
-// Mbps peak — fits a remote friend's connection while looking good on a TV.
-const HLS_RATE_ARGS = ['-b:v', '8M', '-maxrate', '10M', '-bufsize', '16M']
-const HLS_ENCODER_ARGS: Record<HardwareEncoder, string[]> = {
-  h264_nvenc: [...HARDWARE_ENCODER_ARGS.h264_nvenc, ...HLS_RATE_ARGS],
-  h264_qsv: [...HARDWARE_ENCODER_ARGS.h264_qsv, ...HLS_RATE_ARGS],
-  h264_amf: ['-c:v', 'h264_amf', '-quality', 'balanced', '-rc', 'vbr_peak', ...HLS_RATE_ARGS]
+// Bitrate caps for HLS transcodes, per size (playback.ts's ladder) — e.g.
+// 1080p at ~8 Mbps average and 10 Mbps peak, which fits a remote friend's
+// connection while looking good on a TV.
+function hlsRateArgs(rung: TranscodeRung): string[] {
+  const peak = Math.round(rung.kbps * 1.25)
+  return ['-b:v', `${rung.kbps}k`, '-maxrate', `${peak}k`, '-bufsize', `${rung.kbps * 2}k`]
 }
-// Scale down only (never up) to 1080p; 8-bit 4:2:0 is what every H.264
-// player and hardware encoder accepts (10-bit HDR sources included).
-const HLS_SCALE_FILTER = ['-vf', "scale=w='min(1920,iw)':h=-2,format=yuv420p"]
 
 // Always encoded (never stream-copied): segments must be cut at exact
 // 4-second boundaries so the VOD playlist's timeline is true, and copying
-// can only cut where the source happens to have keyframes.
-async function hlsVideoArgs(): Promise<string[]> {
+// can only cut where the source happens to have keyframes. (Playing the
+// original untouched is the remux path in hls.ts.)
+async function hlsVideoArgs(rung: TranscodeRung): Promise<string[]> {
   const encoder = await detectHardwareEncoder()
-  return [
-    ...HLS_SCALE_FILTER,
-    ...(encoder
-      ? HLS_ENCODER_ARGS[encoder]
-      : ['-c:v', 'libx264', '-preset', 'faster', '-crf', '21', '-maxrate', '10M', '-bufsize', '16M'])
-  ]
+  const rate = hlsRateArgs(rung)
+  // Scale down only (never up), keeping the shape; 8-bit 4:2:0 is what
+  // every H.264 player and hardware encoder accepts (10-bit HDR sources
+  // included).
+  const maxWidth = Math.round((rung.height * 16) / 9 / 2) * 2
+  const scale = ['-vf', `scale=w='min(${maxWidth},iw)':h=-2,format=yuv420p`]
+  if (!encoder) {
+    const peak = Math.round(rung.kbps * 1.25)
+    return [
+      ...scale,
+      ...['-c:v', 'libx264', '-preset', 'faster', '-crf', '21'],
+      ...['-maxrate', `${peak}k`, '-bufsize', `${rung.kbps * 2}k`]
+    ]
+  }
+  const encoderArgs =
+    encoder === 'h264_amf'
+      ? ['-c:v', 'h264_amf', '-quality', 'balanced', '-rc', 'vbr_peak']
+      : HARDWARE_ENCODER_ARGS[encoder]
+  return [...scale, ...encoderArgs, ...rate]
+}
+
+// Keyframe indexes are read once per file; only MKV/WebM carry one.
+const keyframeCache = new Map<string, Promise<number[] | null>>()
+
+function fileKeyframes(filePath: string): Promise<number[] | null> {
+  if (!/\.(mkv|webm)$/i.test(filePath)) return Promise.resolve(null)
+  let cached = keyframeCache.get(filePath)
+  if (!cached) {
+    cached = readMkvKeyframes(filePath)
+    keyframeCache.set(filePath, cached)
+  }
+  return cached
+}
+
+// What a player said it can decode, from /api/playback's query.
+function capsFromQuery(query: express.Request['query']): ClientCaps {
+  const list = (v: unknown): string[] =>
+    typeof v === 'string' ? v.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean) : []
+  const maxHeight = parseInt(String(query.maxHeight ?? ''), 10)
+  return {
+    videoCodecs: list(query.video).length ? list(query.video) : ['h264'],
+    maxHeight: Number.isFinite(maxHeight) && maxHeight > 0 ? maxHeight : 1080,
+    hevc10Bit: query.hevc10 === '1',
+    dolbyVision: query.dv === '1',
+    audioCodecs: list(query.audio).length ? list(query.audio) : ['aac', 'mp3']
+  }
+}
+
+const QUALITY_CHOICES: QualityChoice[] = ['auto', 'original', '1080', '720', '480']
+// A device's saved speed test counts for this long.
+const SAVED_SPEED_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+// The device's measured speed in kbps: what it just measured if it says,
+// else its last saved speed test.
+function bandwidthFor(res: express.Response, query: express.Request['query']): number | null {
+  const fresh = parseFloat(String(query.bandwidthKbps ?? ''))
+  if (Number.isFinite(fresh) && fresh > 0) return fresh
+  const auth = authOf(res)
+  if (auth.kind !== 'device') return null
+  const { speedMbps, speedTestedAt } = auth.device
+  if (!speedMbps || !speedTestedAt) return null
+  const testedAt = Date.parse(`${speedTestedAt.replace(' ', 'T')}Z`)
+  if (!Number.isFinite(testedAt) || Date.now() - testedAt > SAVED_SPEED_MAX_AGE_MS) return null
+  return speedMbps * 1000
 }
 
 export const DEFAULT_HLS_CACHE_DIR = join(tmpdir(), 'martbox-hls')
@@ -806,7 +869,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   registerHlsRoutes(app, {
     ffmpegPath,
     resolveMediaPath,
-    durationSeconds: async (filePath) => (await probeFile(filePath)).durationSeconds,
+    probe: probeFile,
+    keyframes: fileKeyframes,
     videoArgs: hlsVideoArgs,
     ownerOf: (res) => {
       const auth = authOf(res)
@@ -824,7 +888,10 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       return
     }
     const probe = await probeFile(filePath)
-    const directPlay = canDirectPlay(probe, extname(filePath))
+    // ?direct=1: /api/playback already decided this player takes the file
+    // as it is (e.g. HEVC in MP4 on Apple devices, which canDirectPlay —
+    // written for the desktop app's Chromium player — doesn't allow).
+    const directPlay = req.query.direct === '1' || canDirectPlay(probe, extname(filePath))
     logTranscode(
       `REQUEST file=${filePath} probe=${JSON.stringify(probe)} ext=${extname(filePath)} directPlay=${directPlay}`
     )
@@ -833,6 +900,48 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     } else {
       await streamTranscode(req, res, filePath, probe.videoCodec)
     }
+  })
+
+  // How this player should play this file: the original when it can decode
+  // it and its connection can carry it, converted down otherwise (see
+  // playback.ts). Returns the URL to play; the player adds its media link.
+  app.get('/api/playback/:mediaType/:id', async (req, res) => {
+    const { mediaType, id } = req.params
+    const filePath = resolveMediaPath(mediaType, parseInt(id, 10))
+    if (!filePath || !existsSync(filePath)) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+    const probe = await probeFile(filePath)
+    const quality = QUALITY_CHOICES.find((q) => q === req.query.quality) ?? 'auto'
+    const avoid = (typeof req.query.avoid === 'string' ? req.query.avoid.split(',') : []).filter(
+      (m): m is PlaybackMethod => m === 'direct' || m === 'remux' || m === 'transcode'
+    )
+    const bandwidthKbps = bandwidthFor(res, req.query)
+    const decision = decidePlayback({
+      probe,
+      extension: extname(filePath),
+      caps: capsFromQuery(req.query),
+      bandwidthKbps,
+      quality,
+      canRemux: (await fileKeyframes(filePath)) !== null,
+      avoid
+    })
+    const path =
+      decision.method === 'direct'
+        ? `/stream/${mediaType}/${id}?direct=1`
+        : decision.method === 'remux'
+          ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio}`
+          : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}`
+    logTranscode(
+      `PLAYBACK ${mediaType}/${id} method=${decision.method} bandwidthKbps=${bandwidthKbps ?? 'unknown'} quality=${quality} avoid=${avoid.join(',') || 'none'} — ${decision.reason}`
+    )
+    res.json({
+      method: decision.method,
+      path,
+      reason: decision.reason,
+      durationSeconds: probe.durationSeconds
+    })
   })
 
   app.get('/probe/:mediaType/:id', async (req, res) => {

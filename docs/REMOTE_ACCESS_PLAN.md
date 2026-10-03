@@ -210,30 +210,41 @@ from outside the house, and the dashboard shows their connection.
 - Direct play for H.264 + AAC/MP3 in MP4/M4V/MOV; H.264 in other containers
   (e.g. MKV) is remuxed (`-c:v copy`), audio converted to AAC.
 - Fragmented MP4 output with a keyframe every 2 s.
+- **Per-device direct play** (`src/main/playback.ts`, `GET /api/playback`):
+  the iPhone and Apple TV apps send what they decode (H.264/HEVC, 10-bit,
+  Dolby Vision, max height, audio codecs) and a speed test result. The
+  server answers with the original as-is (compatible MP4/MOV), the original
+  **remuxed** to fragmented-MP4 HLS (MKV; video untouched incl. 4K HDR,
+  audio copied or converted to E-AC-3 5.1), or a transcode — and why. If a
+  device can't play what it's given it asks again, ruling that way out.
+- **Remux HLS** (`src/main/hls.ts`): segments cut at the source's own
+  keyframes, read from the MKV's index (`src/main/mkvKeyframes.ts`); runs
+  pause when far ahead of the viewer so a big file isn't copied into the
+  cache all at once.
+- **Quality ladder:** 1080p ~8 Mbps / 720p ~4 Mbps / 480p ~1.5 Mbps
+  (H.264), picked to fit the measured speed with 50% headroom; the viewer
+  can choose Automatic / Original / a size in the app's Settings.
 
 **Gaps today**
-- **No resolution or bitrate control:** a 4K HEVC source is re-encoded to
-  *4K* H.264 with no bitrate cap — heavy for the host and far too big for a
-  remote upload.
-- **HEVC is never direct-played**, even to devices that support it (Apple TV
-  4K, recent iPhones/iPads, many Android TV devices) — wastes the GPU and
-  loses HDR. Direct-play rules aren't per-device.
+- **The desktop app** still uses the older rule (H.264 MP4 direct, anything
+  else transcoded at source size) — move it to `/api/playback` too.
 - **No HDR → SDR tone mapping:** HDR sources transcoded for SDR screens look
   washed out (or the encode fails on 10-bit input).
 - **Decoding is software-only** (no `-hwaccel`), so 4K HEVC decode lands on
   the CPU.
-- **Audio always downmixed to stereo** (`-ac 2`) — no 5.1.
+- **Transcodes downmix audio to stereo** (`-ac 2`) — 5.1 survives only on
+  the original/remux paths.
 - **No VideoToolbox** in the encoder list, so macOS hosts always encode in
   software.
 
 **To build**
-1. **Per-device direct play.** Clients report what they can play (codecs incl.
+1. ~~**Per-device direct play.**~~ Done for iPhone/Apple TV (above). Clients report what they can play (codecs incl.
    HEVC/HDR10/Dolby Vision, max resolution, audio channels). If the device
    supports the source and the path has the bandwidth: send it as-is, or
    **remux** MKV → fragmented MP4 with `-c:v copy` (`-tag:v hvc1` for HEVC on
    Apple). Zero quality loss, near-zero host load. This is the default for
    4K whenever possible.
-2. **Quality ladder with downscaling:** Original → 1080p (~8–10 Mbps H.264 /
+2. ~~**Quality ladder with downscaling:**~~ Done for H.264 (above). Original → 1080p (~8–10 Mbps H.264 /
    ~5–6 Mbps HEVC) → 720p (~3–4 Mbps) → 480p (~1.5 Mbps). Picked per friend
    from the measured path (Phase 0 throughput test) and the host's upload;
    viewer can override.
