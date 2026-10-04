@@ -1,4 +1,18 @@
 import express from 'express'
+import { yearInReview } from './watchLog'
+import { avatarPath, removeAvatar, saveAvatar } from './avatars'
+import {
+  addToCollection,
+  collectionsContaining,
+  createCollection,
+  deleteCollection,
+  getCollection,
+  listCollections,
+  moveInCollection,
+  removeFromCollection,
+  updateCollection
+} from './collections'
+import { getMarkers } from './markers'
 import compression from 'compression'
 import {
   createReadStream,
@@ -58,6 +72,7 @@ import {
   getMovie,
   listLibraries,
   listProfiles,
+  setProfileAvatarColor,
   createProfile,
   renameProfile,
   deleteProfile,
@@ -1267,6 +1282,56 @@ function registerMetadataApi(app: express.Express): void {
 
   // Attempting a PIN is inherently permission-less (it's the login step
   // itself) — no requester identity needed, just the guess and the answer.
+  // Avatars: a photo (avatars.ts) or a colour. The person themselves, or
+  // the admin for anyone.
+  const mayEditProfile = (res: express.Response, targetId: number, body: any): boolean => {
+    if (canActAsProfile(res, targetId, body?.pin)) return true
+    const requesterId = deviceProfile(res)?.id ?? Number(body?.requestingProfileId)
+    const requester = listProfiles().find((p) => p.id === requesterId)
+    if (requester?.isAdmin && (deviceProfile(res) || hasProfileAccess(res, requester.id, body?.requesterPin))) {
+      return true
+    }
+    res.status(403).json({ error: 'You can only change your own profile' })
+    return false
+  }
+  app.get('/api/profiles/:id/avatar', (req, res) => {
+    const file = avatarPath(parseInt(req.params.id, 10))
+    if (!file) {
+      res.status(404).end()
+      return
+    }
+    // The URL carries ?v=<when it changed>, so it never goes stale.
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    res.sendFile(file)
+  })
+  const photoJson = express.json({ limit: '12mb' })
+  app.post('/api/profiles/:id/avatar', photoJson, (req, res) => {
+    const id = parseInt(req.params.id, 10)
+    if (!mayEditProfile(res, id, req.body)) return
+    const image = Buffer.from(String(req.body?.image ?? ''), 'base64')
+    if (!saveAvatar(id, image)) {
+      res.status(400).json({ error: 'That file isn’t a picture MartBox can read' })
+      return
+    }
+    res.json(listProfiles().find((p) => p.id === id))
+  })
+  app.post('/api/profiles/:id/avatar/delete', json, (req, res) => {
+    const id = parseInt(req.params.id, 10)
+    if (!mayEditProfile(res, id, req.body)) return
+    removeAvatar(id)
+    res.json(listProfiles().find((p) => p.id === id))
+  })
+  app.post('/api/profiles/:id/color', json, (req, res) => {
+    const id = parseInt(req.params.id, 10)
+    if (!mayEditProfile(res, id, req.body)) return
+    const color = String(req.body?.color ?? '')
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+      res.status(400).json({ error: 'Not a colour' })
+      return
+    }
+    setProfileAvatarColor(id, color)
+    res.json(listProfiles().find((p) => p.id === id))
+  })
   app.post('/api/profiles/:id/verify-pin', json, (req, res) => {
     res.json({ ok: checkPin(res, parseInt(req.params.id, 10), String(req.body.pin ?? '')) })
   })
@@ -1313,6 +1378,78 @@ function registerMetadataApi(app: express.Express): void {
     res.json(getNextEpisodeToWatch(profileId, parseInt(req.params.id, 10)))
   })
   app.get('/api/episodes/:id', (req, res) => res.json(getEpisode(parseInt(req.params.id, 10))))
+  // Year in Review (watchLog.ts): one profile's year.
+  app.get('/api/year-in-review', (req, res) => {
+    const profileId = parseInt(req.query.profileId as string, 10)
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
+      res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
+      return
+    }
+    const year = parseInt(req.query.year as string, 10)
+    res.json(yearInReview(profileId, Number.isInteger(year) ? year : new Date().getFullYear()))
+  })
+
+  // Collections (collections.ts): everyone sees them; only the admin
+  // changes them.
+  const isMediaKind = (t: unknown): t is 'movie' | 'show' => t === 'movie' || t === 'show'
+  const actsAsAdmin = (res: express.Response, body: any): boolean => {
+    const profileId = Number(body?.profileId)
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (profile?.isAdmin && canActAsProfile(res, profileId, body?.pin)) return true
+    res.status(403).json({ error: 'Only the admin can change collections' })
+    return false
+  }
+  app.get('/api/collections', (_req, res) => res.json(listCollections()))
+  app.get('/api/collections/containing', (req, res) => {
+    const mediaType = req.query.mediaType
+    const mediaId = parseInt(req.query.mediaId as string, 10)
+    res.json(isMediaKind(mediaType) && mediaId ? collectionsContaining(mediaType, mediaId) : [])
+  })
+  app.get('/api/collections/:id', (req, res) => {
+    const collection = getCollection(parseInt(req.params.id, 10))
+    if (collection) res.json(collection)
+    else res.status(404).json({ error: 'No such collection' })
+  })
+  app.post('/api/collections', json, (req, res) => {
+    if (!actsAsAdmin(res, req.body)) return
+    const collection = createCollection(req.body.name, req.body.description)
+    if (collection) res.json(collection)
+    else res.status(400).json({ error: 'A collection needs a name' })
+  })
+  app.post('/api/collections/:id', json, (req, res) => {
+    if (!actsAsAdmin(res, req.body)) return
+    const { name, description, onHome } = req.body
+    const collection = updateCollection(parseInt(req.params.id, 10), { name, description, onHome })
+    if (collection) res.json(collection)
+    else res.status(404).json({ error: 'No such collection' })
+  })
+  app.post('/api/collections/:id/delete', json, (req, res) => {
+    if (!actsAsAdmin(res, req.body)) return
+    deleteCollection(parseInt(req.params.id, 10))
+    res.json({ ok: true })
+  })
+  app.post('/api/collections/:id/items', json, (req, res) => {
+    if (!actsAsAdmin(res, req.body)) return
+    const { mediaType, mediaId, action, toIndex } = req.body
+    const id = parseInt(req.params.id, 10)
+    if (!isMediaKind(mediaType) || !Number.isInteger(mediaId)) {
+      res.status(400).json({ error: 'Which title?' })
+      return
+    }
+    if (action === 'remove') removeFromCollection(id, mediaType, mediaId)
+    else if (action === 'move' && Number.isInteger(toIndex)) moveInCollection(id, mediaType, mediaId, toIndex)
+    else if (!addToCollection(id, mediaType, mediaId)) {
+      res.status(404).json({ error: 'No such collection or title' })
+      return
+    }
+    res.json(getCollection(id))
+  })
+
+  // Where the intro and the end credits are (Skip Intro, Up Next), once
+  // the season has been analysed; nulls until then.
+  app.get('/api/episodes/:id/markers', (req, res) =>
+    res.json(getMarkers(parseInt(req.params.id, 10)) ?? { introStart: null, introEnd: null, creditsStart: null })
+  )
 
   app.get('/api/progress', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)

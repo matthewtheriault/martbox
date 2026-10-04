@@ -16,8 +16,10 @@ import type {
   RequestableTitle,
   AppSettings,
   AppUpdateStatus,
+  Collection,
   ContinueWatchingItem,
   Episode,
+  EpisodeMarkers,
   IptvChannel,
   IptvHealthProgress,
   IptvHealthSummary,
@@ -30,6 +32,7 @@ import type {
   MovieMetadataPatch,
   MovieSearchResult,
   Profile,
+  YearInReview,
   ScanProgress,
   Show,
   ShowMetadataPatch,
@@ -107,7 +110,8 @@ const api = {
     library: (query: string) => invoke<{ movies: Movie[]; shows: Show[] }>('search:library', query)
   },
   episodes: {
-    get: (id: number) => invoke<Episode | null>('episodes:get', id)
+    get: (id: number) => invoke<Episode | null>('episodes:get', id),
+    markers: (id: number) => invoke<EpisodeMarkers | null>('episodes:markers', id)
   },
   profiles: {
     list: () => invoke<Profile[]>('profiles:list'),
@@ -170,6 +174,50 @@ const api = {
       invoke<void>('channels:delete', requestingProfileId, id),
     pickLogo: (requestingProfileId: number) =>
       invoke<string | null>('channels:pickLogo', requestingProfileId)
+  },
+  yearInReview: (profileId: number, pin: string | null, year: number | null = null) =>
+    invoke<YearInReview>('yearInReview:get', profileId, pin, year),
+  avatars: {
+    // requesting: the admin changing someone else's avatar.
+    setPhoto: (
+      profileId: number,
+      pin: string | null,
+      requesting: { profileId: number; pin: string | null } | null,
+      base64: string
+    ) => invoke<Profile>('profiles:setPhoto', profileId, pin, requesting, base64),
+    removePhoto: (
+      profileId: number,
+      pin: string | null,
+      requesting: { profileId: number; pin: string | null } | null
+    ) => invoke<Profile>('profiles:removePhoto', profileId, pin, requesting),
+    setColor: (
+      profileId: number,
+      pin: string | null,
+      requesting: { profileId: number; pin: string | null } | null,
+      color: string
+    ) => invoke<Profile>('profiles:setColor', profileId, pin, requesting, color)
+  },
+  collections: {
+    list: () => invoke<Collection[]>('collections:list'),
+    get: (id: number) => invoke<Collection>('collections:get', id),
+    containing: (mediaType: 'movie' | 'show', mediaId: number) =>
+      invoke<number[]>('collections:containing', mediaType, mediaId),
+    create: (profileId: number, pin: string | null, name: string, description = '') =>
+      invoke<Collection>('collections:create', profileId, pin, name, description),
+    update: (
+      profileId: number,
+      pin: string | null,
+      id: number,
+      patch: { name?: string; description?: string; onHome?: boolean }
+    ) => invoke<Collection>('collections:update', profileId, pin, id, patch),
+    remove: (profileId: number, pin: string | null, id: number) =>
+      invoke<void>('collections:delete', profileId, pin, id),
+    item: (
+      profileId: number,
+      pin: string | null,
+      id: number,
+      change: { mediaType: 'movie' | 'show'; mediaId: number; action: 'add' | 'remove' | 'move'; toIndex?: number }
+    ) => invoke<Collection>('collections:item', profileId, pin, id, change)
   },
   appearance: {
     get: (profileId: number, pin: string | null) =>

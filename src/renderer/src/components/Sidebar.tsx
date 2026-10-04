@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useProfile } from '../lib/ProfileContext'
+import Avatar from './Avatar'
 
 const icons = {
+  year: (
+    <path d="M12 3l2.2 5.6L20 9.3l-4.4 3.9 1.3 5.8L12 16l-4.9 3 1.3-5.8L4 9.3l5.8-.7z" />
+  ),
+  collections: (
+    <>
+      <rect x="3" y="7" width="13" height="13" rx="2" />
+      <path d="M7 4h11a2 2 0 0 1 2 2v11" />
+    </>
+  ),
   home: (
     <path d="M3 11.5 12 4l9 7.5M5.5 10v9a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1v-9" />
   ),
@@ -108,7 +118,7 @@ export default function Sidebar(): JSX.Element {
         <Icon name="search" />
         <input
           type="text"
-          placeholder="Search…"
+          placeholder={navigator.platform.toLowerCase().includes('mac') ? 'Search…  ⌘K' : 'Search…  Ctrl+K'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && runSearch()}
@@ -127,12 +137,20 @@ export default function Sidebar(): JSX.Element {
           <Icon name="tv" />
           <span>TV Shows</span>
         </NavLink>
+        <NavLink to="/collections" className="sidebar-link">
+          <Icon name="collections" />
+          <span>Collections</span>
+        </NavLink>
         {activeProfile.isAdmin && (
           <NavLink to="/activity" className="sidebar-link">
             <Icon name="activity" />
             <span>Activity</span>
           </NavLink>
         )}
+        <NavLink to="/year" className="sidebar-link">
+          <Icon name="year" />
+          <span>Your Year</span>
+        </NavLink>
         <NavLink to="/live" className="sidebar-link">
           <Icon name="live" />
           <span>Live</span>
@@ -150,9 +168,7 @@ export default function Sidebar(): JSX.Element {
         )}
       </nav>
       <button className="sidebar-profile-badge" onClick={switchProfile}>
-        <span className="sidebar-profile-avatar" style={{ background: activeProfile.avatarId }}>
-          {activeProfile.name.charAt(0).toUpperCase()}
-        </span>
+        <Avatar profile={activeProfile} className="sidebar-profile-avatar" />
         <span className="sidebar-profile-name">{activeProfile.name}</span>
       </button>
       <NavLink to="/settings" className="sidebar-link sidebar-link-settings">

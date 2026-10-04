@@ -5,6 +5,11 @@ import ffprobeStatic from 'ffprobe-static'
 
 const execFileAsync = promisify(execFile)
 
+// The real file in a packaged app (asarUnpack): spelled out, because the
+// intro detector calls this from a worker thread, where Electron doesn't
+// redirect asar paths for us.
+const ffprobePath = (ffprobeStatic.path as string).replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked')
+
 export interface MediaProbe {
   container: string
   videoCodec: string | null
@@ -92,7 +97,7 @@ export async function probeFile(filePath: string): Promise<MediaProbe> {
   if (cached) return cached
 
   try {
-    const { stdout } = await execFileAsync(ffprobeStatic.path, [
+    const { stdout } = await execFileAsync(ffprobePath, [
       '-v',
       'error',
       '-print_format',
@@ -115,4 +120,31 @@ export function canDirectPlay(probe: MediaProbe, extension: string): boolean {
   const videoOk = probe.videoCodec === 'h264'
   const audioOk = probe.audioCodec === 'aac' || probe.audioCodec === 'mp3' || !probe.audioCodec
   return containerOk && videoOk && audioOk
+}
+
+export interface Chapter {
+  start: number
+  end: number
+  title: string
+}
+
+export async function probeChapters(filePath: string): Promise<Chapter[]> {
+  try {
+    const { stdout } = await execFileAsync(ffprobePath, [
+      '-v',
+      'error',
+      '-print_format',
+      'json',
+      '-show_chapters',
+      filePath
+    ])
+    const data = JSON.parse(stdout)
+    return (data.chapters ?? []).map((c: any) => ({
+      start: parseFloat(c.start_time),
+      end: parseFloat(c.end_time),
+      title: String(c.tags?.title ?? '')
+    }))
+  } catch {
+    return []
+  }
 }

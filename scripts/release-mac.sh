@@ -95,3 +95,7 @@ fi
 
 gh release upload "$TAG" "${FILES[@]}" --clobber
 echo "Uploaded ${#FILES[@]} files to $TAG."
+
+# The builds above leave the last architecture's native modules (SQLite) in
+# node_modules; put back this Mac's own so `npm run dev` keeps working.
+npx electron-builder install-app-deps --arch "$(uname -m)" >/dev/null

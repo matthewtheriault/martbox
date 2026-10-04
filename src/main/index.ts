@@ -1,4 +1,6 @@
 import './devUserData'
+import { analyzeMarkersSoon } from './markers'
+import { seedFromPlayHistory } from './watchLog'
 import { app, BrowserWindow, shell, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { registerIpcHandlers } from './ipc'
@@ -129,6 +131,9 @@ async function createWindow(): Promise<void> {
   })
 
   await startMediaServer(imageCacheDir)
+  // Finds intros and credits in TV episodes once the app has settled.
+  analyzeMarkersSoon(60_000)
+  seedFromPlayHistory()
 
   // MartBox can stay running for weeks at a time (closing the window only
   // hides to tray), so a startup-only sweep isn't enough on its own — also
@@ -165,9 +170,15 @@ async function createWindow(): Promise<void> {
   // <video> and <img> requests to the host can't carry custom headers, so
   // in client mode the device key is added here for anything sent to the
   // sidecar's local port — the same key remoteClient.ts sends on API calls.
+  // Trailers play in YouTube's embedded player, which refuses to start
+  // without a referrer — and pages loaded from file:// send none.
   session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['http://127.0.0.1/*'] },
+    { urls: ['http://127.0.0.1/*', 'https://www.youtube-nocookie.com/embed/*'] },
     (details, callback) => {
+      if (details.url.startsWith('https://www.youtube-nocookie.com/')) {
+        callback({ requestHeaders: { ...details.requestHeaders, Referer: 'https://martbox.app/' } })
+        return
+      }
       const port = getSidecarLocalPort()
       if (port && getSetting('remoteAccessMode') === 'client' && new URL(details.url).port === String(port)) {
         callback({ requestHeaders: { ...details.requestHeaders, ...authHeaders() } })

@@ -1,4 +1,5 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { analyzeMarkersSoon } from './markers'
 import { basename, extname, join } from 'path'
 import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
 import { randomUUID } from 'crypto'
@@ -89,6 +90,9 @@ import {
 } from '../shared/remoteAccess'
 import type {
   ChannelConfig,
+  Collection,
+  Profile,
+  YearInReview,
   ChannelGuide,
   ChannelNow,
   LoginCodeResult,
@@ -135,6 +139,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     })
     // New episodes and movies join their Live Channels.
     void rebuildAllChannels()
+    analyzeMarkersSoon()
   })
 
   ipcMain.handle('movies:list', (_e, libraryId?: number) => dataSource().listMovies(libraryId))
@@ -627,6 +632,76 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // This person's accent preset, kept by the server (this one, or the host
   // in client mode) so it follows them to every device. null when none is
   // saved or the server is too old to keep one.
+  const postJson = (path: string, body: unknown): Promise<{ status: number; body: any }> =>
+    serverCall(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  // Avatars. requesting = the admin acting for someone else (with their PIN).
+  type Requesting = { profileId: number; pin: string | null } | null
+  const avatarBody = (pin: string | null, requesting: Requesting): object => ({
+    pin,
+    requestingProfileId: requesting?.profileId,
+    requesterPin: requesting?.pin
+  })
+  ipcMain.handle(
+    'profiles:setPhoto',
+    async (_e, id: number, pin: string | null, requesting: Requesting, base64: string) =>
+      okOrThrow<Profile>(await postJson(`/api/profiles/${id}/avatar`, { ...avatarBody(pin, requesting), image: base64 }))
+  )
+  ipcMain.handle('profiles:removePhoto', async (_e, id: number, pin: string | null, requesting: Requesting) =>
+    okOrThrow<Profile>(await postJson(`/api/profiles/${id}/avatar/delete`, avatarBody(pin, requesting)))
+  )
+  ipcMain.handle(
+    'profiles:setColor',
+    async (_e, id: number, pin: string | null, requesting: Requesting, color: string) =>
+      okOrThrow<Profile>(await postJson(`/api/profiles/${id}/color`, { ...avatarBody(pin, requesting), color }))
+  )
+  ipcMain.handle('yearInReview:get', async (_e, profileId: number, pin: string | null, year: number | null) =>
+    okOrThrow<YearInReview>(
+      await serverCall(`/api/year-in-review?${profileQuery(profileId, pin)}${year ? `&year=${year}` : ''}`)
+    )
+  )
+  ipcMain.handle('collections:list', async () => okOrThrow<Collection[]>(await serverCall('/api/collections')))
+  ipcMain.handle('collections:get', async (_e, id: number) =>
+    okOrThrow<Collection>(await serverCall(`/api/collections/${id}`))
+  )
+  ipcMain.handle('collections:containing', async (_e, mediaType: 'movie' | 'show', mediaId: number) =>
+    okOrThrow<number[]>(await serverCall(`/api/collections/containing?mediaType=${mediaType}&mediaId=${mediaId}`))
+  )
+  ipcMain.handle(
+    'collections:create',
+    async (_e, profileId: number, pin: string | null, name: string, description: string) =>
+      okOrThrow<Collection>(await postJson('/api/collections', { profileId, pin, name, description }))
+  )
+  ipcMain.handle(
+    'collections:update',
+    async (
+      _e,
+      profileId: number,
+      pin: string | null,
+      id: number,
+      patch: { name?: string; description?: string; onHome?: boolean }
+    ) => okOrThrow<Collection>(await postJson(`/api/collections/${id}`, { profileId, pin, ...patch }))
+  )
+  ipcMain.handle('collections:delete', async (_e, profileId: number, pin: string | null, id: number) => {
+    okOrThrow(await postJson(`/api/collections/${id}/delete`, { profileId, pin }))
+  })
+  ipcMain.handle(
+    'collections:item',
+    async (
+      _e,
+      profileId: number,
+      pin: string | null,
+      id: number,
+      change: { mediaType: 'movie' | 'show'; mediaId: number; action: 'add' | 'remove' | 'move'; toIndex?: number }
+    ) => okOrThrow<Collection>(await postJson(`/api/collections/${id}/items`, { profileId, pin, ...change }))
+  )
+  ipcMain.handle('episodes:markers', async (_e, episodeId: number) => {
+    const reply = await serverCall(`/api/episodes/${episodeId}/markers`).catch(() => null)
+    return reply && reply.status === 200 ? reply.body : null
+  })
   ipcMain.handle('appearance:get', async (_e, profileId: number, pin: string | null) => {
     const reply = await serverCall(`/api/appearance?${profileQuery(profileId, pin)}`).catch(() => null)
     return reply && reply.status === 200 ? ((reply.body?.accent as string | null) ?? null) : null

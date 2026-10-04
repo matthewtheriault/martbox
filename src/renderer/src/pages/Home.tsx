@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { ContinueWatchingItem, Movie, Show, WatchlistItem } from '../../../shared/types'
+import type { Collection, ContinueWatchingItem, Movie, Show, WatchlistItem } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
 import { imageUrl } from '../lib/media'
@@ -16,6 +16,7 @@ export default function Home(): JSX.Element {
   const [movies, setMovies] = useState<Movie[]>([])
   const [shows, setShows] = useState<Show[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
+  const [collections, setCollections] = useState<Collection[]>([])
 
   // movies.list()/shows.list() come back ordered by sort_title (alphabetical,
   // for the library browse pages) — sort by addedAt here instead so this row
@@ -29,6 +30,10 @@ export default function Home(): JSX.Element {
     window.api.movies.list().then((m) => setMovies(byRecentlyAdded(m)))
     window.api.shows.list().then((s) => setShows(byRecentlyAdded(s)))
     window.api.watchlist.list(activeProfile.id, profilePin).then(setWatchlist)
+    window.api.collections
+      .list()
+      .then((all) => setCollections(all.filter((c) => c.onHome && c.items.length > 0)))
+      .catch(() => {})
   }
 
   useEffect(refresh, [activeProfile.id])
@@ -126,6 +131,20 @@ export default function Home(): JSX.Element {
             />
           ))}
         </Row>
+
+        {collections.map((c) => (
+          <Row key={`collection-${c.id}`} title={c.name}>
+            {c.items.map((item) => (
+              <PosterCard
+                key={`${item.mediaType}-${item.id}`}
+                title={item.title}
+                subtitle={item.year ? String(item.year) : null}
+                posterUrl={imageUrl(item.posterPath, port)}
+                onClick={() => navigate(item.mediaType === 'movie' ? `/movie/${item.id}` : `/show/${item.id}`)}
+              />
+            ))}
+          </Row>
+        ))}
 
         <Row title="Recently Added Movies">
           {movies.map((movie) => (

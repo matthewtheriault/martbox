@@ -10,6 +10,7 @@ import PosterCard from '../components/PosterCard'
 import FilePathRow from '../components/FilePathRow'
 import CastCrew from '../components/CastCrew'
 import WatchlistButton from '../components/WatchlistButton'
+import AddToCollection from '../components/AddToCollection'
 
 export default function MovieDetail(): JSX.Element | null {
   const { id } = useParams()
@@ -94,6 +95,7 @@ export default function MovieDetail(): JSX.Element | null {
               mediaType="movie"
               mediaId={movie.id}
             />
+            <AddToCollection mediaType="movie" mediaId={movie.id} />
             {isHost && activeProfile.isAdmin && (
               <button className="btn-danger" onClick={removeMovie} disabled={removing}>
                 {removing ? 'Removing…' : 'Remove from Library'}
