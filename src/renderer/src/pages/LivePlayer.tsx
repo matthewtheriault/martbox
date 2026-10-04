@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { Channel, ChannelNow } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
-import { streamUrl } from '../lib/media'
+import { imageUrl, streamUrl } from '../lib/media'
 
 // Watching a Live Channel: joins whatever is on right now, at the right
 // point, and moves on to the next program by itself. ↑/↓ change channel,
@@ -175,6 +175,9 @@ export default function LivePlayer(): JSX.Element {
         />
       )}
       {error && <div className="live-player-error">{error}</div>}
+      {now?.channel.logoPath && (
+        <img className="live-player-logo" src={imageUrl(now.channel.logoPath, port)} alt="" />
+      )}
 
       {now && program && showBanner && (
         <div className="live-banner">

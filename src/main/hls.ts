@@ -56,6 +56,8 @@ const IDLE_MS = 20 * 60 * 1000
 const MAX_SESSIONS = 6
 const SEGMENT_WAIT_MS = 30_000
 const SEGMENT_NAME = /^seg(\d{5})\.(ts|m4s)$/
+// Owner of the sessions Live Channel viewers share.
+const SHARED_OWNER = 'shared'
 // ffmpeg begins a seek in a file with B-frames this much before the time
 // asked for (fftools' "dts heuristic", 3/23 s), which would land on the
 // keyframe before the one we want; a remux run adds it back, plus a frame's
@@ -842,14 +844,22 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
       res.status(404).end()
       return
     }
-    const owner = deps.ownerOf(res)
     const mediaKey = `${mediaType}:${id}`
     if (!deps.onMediaRequest(req, res, mediaKey)) {
       res.status(403).json({ error: 'stopped' })
       return
     }
     const variant = variantFromQuery(req.query)
-    let session = [...sessions.values()].find((s) => s.owner === owner && s.mediaKey === mediaKey)
+    // ?shared=1 (a Live Channel): everyone watching it at this quality is at
+    // the same moment, so they share one conversion instead of one each.
+    const shared = req.query.shared === '1'
+    const owner = shared ? SHARED_OWNER : deps.ownerOf(res)
+    let session = [...sessions.values()].find(
+      (s) =>
+        s.owner === owner &&
+        s.mediaKey === mediaKey &&
+        (!shared || s.variantKey === variantKey(variant))
+    )
     if (session && session.variantKey !== variantKey(variant)) {
       stopSession(session)
       session = undefined
@@ -889,7 +899,7 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
 
   app.get('/hls/session/:sid/:file', async (req, res) => {
     const session = sessions.get(req.params.sid)
-    if (!session || session.owner !== deps.ownerOf(res)) {
+    if (!session || (session.owner !== SHARED_OWNER && session.owner !== deps.ownerOf(res))) {
       res.status(404).end()
       return
     }

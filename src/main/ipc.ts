@@ -1,6 +1,7 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
-import { basename } from 'path'
-import { unlinkSync } from 'fs'
+import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { basename, extname, join } from 'path'
+import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
+import { randomUUID } from 'crypto'
 import * as repository from './repository'
 import * as remoteClient from './remoteClient'
 import { listLibraries, addLibrary, removeLibrary } from './repository'
@@ -671,6 +672,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return saveChannel(id, config)
     }
   )
+  // A channel logo: copied into the image cache (the only folder /image
+  // serves from), so every app can show it.
+  ipcMain.handle('channels:pickLogo', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const source = result.filePaths[0]
+    const dir = join(app.getPath('userData'), 'images-cache', 'channel-logos')
+    mkdirSync(dir, { recursive: true })
+    const dest = join(dir, `${randomUUID()}${extname(source).toLowerCase()}`)
+    copyFileSync(source, dest)
+    return dest
+  })
   ipcMain.handle('channels:delete', (_e, requestingProfileId: number, id: number) => {
     requireHostAdmin(requestingProfileId)
     deleteChannel(id)

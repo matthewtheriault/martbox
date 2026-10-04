@@ -460,6 +460,21 @@ export interface ChannelConfig {
   // Caps the quality a channel streams at, so one left playing all day
   // doesn't send the original 4K the whole time.
   maxQuality: 'auto' | '1080' | '720' | '480'
+  // Something else at set times of day ("cartoons 7–11 am"), local time.
+  blocks?: ChannelBlock[]
+  // Played between programs (shorts, bumpers, trailers kept as files).
+  filler?: ChannelSource[]
+  // An image in the server's image cache, shown in guides and as a corner
+  // logo while watching.
+  logoPath?: string | null
+}
+
+export interface ChannelBlock {
+  // "HH:MM", 24-hour; an end at or before the start runs past midnight.
+  start: string
+  end: string
+  sources: ChannelSource[]
+  order: 'shuffle' | 'inOrder'
 }
 
 export interface Channel extends ChannelConfig {
