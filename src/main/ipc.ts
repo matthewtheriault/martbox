@@ -44,6 +44,7 @@ import { looksLikeLoginCode } from './authCore'
 import { handleClientStatus, redeemLoginCode, setPendingLoginCode } from './clientSession'
 import { scanAndMatchLibrary } from './library'
 import { deleteChannel, listChannels, rebuildAllChannels, saveChannel } from './channels'
+import { clearHistory, historyStats, listHistory, setRetentionDays } from './history'
 import {
   deleteRequest,
   listRequests,
@@ -737,6 +738,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (getSetting('remoteAccessMode') === 'client') return null
     requireHostAdmin(requestingProfileId)
     return dashboardSnapshot()
+  })
+  ipcMain.handle('dashboard:history', (_e, requestingProfileId: number, limit: number) => {
+    requireHostAdmin(requestingProfileId)
+    return listHistory(limit)
+  })
+  ipcMain.handle('dashboard:stats', (_e, requestingProfileId: number, days: number) => {
+    requireHostAdmin(requestingProfileId)
+    return historyStats(days === 7 || days === 30 || days === 90 ? days : 30)
+  })
+  ipcMain.handle('dashboard:clearHistory', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    clearHistory()
+  })
+  ipcMain.handle('dashboard:setRetention', (_e, requestingProfileId: number, days: number) => {
+    requireHostAdmin(requestingProfileId)
+    setRetentionDays(days)
   })
   ipcMain.handle(
     'dashboard:stopStream',

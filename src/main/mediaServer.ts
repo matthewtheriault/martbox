@@ -13,6 +13,8 @@ import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { cpuMemory, diskSpace } from './systemStats'
+import { checkAlerts, currentAlerts } from './alerts'
+import { startHistory } from './history'
 import {
   clearStaleHlsFolders,
   hlsConversions,
@@ -263,8 +265,21 @@ export function dashboardSnapshot(): DashboardSnapshot {
       decoder: hardwareDecodeDisabled ? 'CPU (GPU decoding failed earlier)' : decoderLabel,
       conversionsRunning: conversions.filter((c) => c.running).length,
       disks
-    }
+    },
+    currentAlerts()
   )
+}
+
+// Every 30 s: raise dashboard alerts, and notify the admin on this PC once
+// per problem every few hours.
+function watchForProblems(): void {
+  setInterval(() => {
+    for (const alert of checkAlerts(dashboardSnapshot())) {
+      if (Notification.isSupported()) {
+        new Notification({ title: 'MartBox', body: alert.message }).show()
+      }
+    }
+  }, 30_000).unref()
 }
 
 // Filled in once detection finishes, for the dashboard.
@@ -273,7 +288,8 @@ let decoderLabel = 'Checking…'
 const ENCODER_NAMES: Record<string, string> = {
   h264_amf: 'AMD GPU (AMF)',
   h264_nvenc: 'NVIDIA GPU (NVENC)',
-  h264_qsv: 'Intel GPU (Quick Sync)'
+  h264_qsv: 'Intel GPU (Quick Sync)',
+  h264_videotoolbox: 'Apple GPU (VideoToolbox)'
 }
 
 function labelCodecs(): void {
@@ -1611,6 +1627,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // accepting connections, so the first real transcode request doesn't pay
   // the probe's latency (it awaits the same cached promise, already
   // resolved by the time anyone's actually pressed play).
+  startHistory()
+  watchForProblems()
   void detectHardwareEncoder()
   void detectHevcEncoder()
   void detectHardwareDecoder()

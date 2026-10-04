@@ -6,6 +6,8 @@ import type {
   ChannelGuide,
   ChannelNow,
   DashboardSnapshot,
+  DashboardStats,
+  PlayHistoryEntry,
   MediaRequest,
   MediaRequestStatus,
   RequestDiscover,
@@ -201,6 +203,14 @@ const api = {
       invoke<void>('requests:delete', requestingProfileId, id)
   },
   dashboard: {
+    history: (requestingProfileId: number, limit = 100) =>
+      invoke<PlayHistoryEntry[]>('dashboard:history', requestingProfileId, limit),
+    stats: (requestingProfileId: number, days: number) =>
+      invoke<DashboardStats>('dashboard:stats', requestingProfileId, days),
+    clearHistory: (requestingProfileId: number) =>
+      invoke<void>('dashboard:clearHistory', requestingProfileId),
+    setRetention: (requestingProfileId: number, days: number) =>
+      invoke<void>('dashboard:setRetention', requestingProfileId, days),
     heartbeat: (
       profileId: number,
       mediaType: MediaType,
