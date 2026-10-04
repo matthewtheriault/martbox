@@ -53,6 +53,10 @@ Plain, friendly and short, like a friend who runs the server. Sentence case ever
 
 SF Symbols on Apple platforms and matching 1.75px-stroke line icons elsewhere (the desktop sidebar's set), at 18px beside `body-strong` labels and 16px inside inputs. Icons take the colour of the text beside them.
 
+## App icon
+
+A neutral grey cube with a black play mark on near-black, so it suits every accent. `design/icon/make_icons.py` draws every size (desktop, iPhone, Apple TV layers and top shelf, and later Fire TV).
+
 ## Changes from the current apps
 
 These tokens are the target style. Existing screens move to them in a later step; until then:
