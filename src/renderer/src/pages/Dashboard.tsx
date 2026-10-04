@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import type {
   DashboardDevice,
   DashboardSnapshot,
+  DashboardStats,
   DashboardStream,
-  MediaRequest
+  MediaRequest,
+  PlayHistoryEntry
 } from '../../../shared/types'
 import { useProfile } from '../lib/ProfileContext'
 import { usePort } from '../lib/PortContext'
@@ -47,6 +49,13 @@ function Meter({ fraction }: { fraction: number }): JSX.Element {
       />
     </div>
   )
+}
+
+function formatMinutes(total: number): string {
+  if (total < 60) return `${total} min`
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  return m ? `${h} h ${m} min` : `${h} h`
 }
 
 function formatBytes(bytes: number): string {
@@ -333,6 +342,206 @@ function RequestRow({
   )
 }
 
+function HistorySection(): JSX.Element {
+  const { activeProfile } = useProfile()
+  const [days, setDays] = useState(30)
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [history, setHistory] = useState<PlayHistoryEntry[]>([])
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const load = (): void => {
+    window.api.dashboard.stats(activeProfile.id, days).then(setStats).catch(() => {})
+    window.api.dashboard.history(activeProfile.id, 50).then(setHistory).catch(() => {})
+  }
+  useEffect(load, [days, activeProfile.id])
+
+  if (!stats) return <section className="dash-section" />
+  const maxDay = Math.max(1, ...stats.uploadByDay.map((d) => d.bytes))
+  return (
+    <section className="dash-section">
+      <div className="dash-section-head">
+        <h2>History &amp; Stats</h2>
+        <div className="dash-tabs">
+          {[7, 30, 90].map((d) => (
+            <button
+              key={d}
+              className={d === days ? 'dash-tab active' : 'dash-tab'}
+              onClick={() => setDays(d)}
+            >
+              {d} days
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="dash-hw-grid">
+        <div className="dash-hw-tile">
+          <div className="dash-dim">Played</div>
+          <div className="dash-hw-value">{stats.plays}</div>
+          <div className="dash-dim dash-hw-note">{formatMinutes(stats.minutesWatched)} watched</div>
+        </div>
+        <div className="dash-hw-tile">
+          <div className="dash-dim">Most at once</div>
+          <div className="dash-hw-value">
+            {stats.peakStreams} {stats.peakStreams === 1 ? 'stream' : 'streams'}
+          </div>
+        </div>
+        <div className="dash-hw-tile">
+          <div className="dash-dim">Library</div>
+          <div className="dash-hw-value">{stats.library.movies} movies</div>
+          <div className="dash-dim dash-hw-note">
+            {stats.library.shows} shows · {stats.library.episodes} episodes
+          </div>
+        </div>
+      </div>
+
+      <div className="dash-stats-columns">
+        <div>
+          <h3>Most watched</h3>
+          {stats.topTitles.length === 0 ? (
+            <p className="dash-dim">Nothing yet.</p>
+          ) : (
+            stats.topTitles.map((t) => (
+              <div key={t.title} className="dash-stat-row">
+                <span>{t.title}</span>
+                <span className="dash-dim">
+                  {t.plays} {t.plays === 1 ? 'play' : 'plays'} · {formatMinutes(t.minutes)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        <div>
+          <h3>By person</h3>
+          {stats.byUser.length === 0 ? (
+            <p className="dash-dim">Nothing yet.</p>
+          ) : (
+            stats.byUser.map((u) => (
+              <div key={u.profileName} className="dash-stat-row">
+                <span>{u.profileName}</span>
+                <span className="dash-dim">
+                  {u.plays} {u.plays === 1 ? 'play' : 'plays'} · {formatMinutes(u.minutes)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <h3>Upload per day</h3>
+      <div className="dash-days">
+        {stats.uploadByDay.map((d) => (
+          <div
+            key={d.day}
+            className="dash-day"
+            title={`${d.day}: ${formatBytes(d.bytes)}`}
+            style={{ height: `${Math.max(2, (d.bytes / maxDay) * 100)}%` }}
+          />
+        ))}
+      </div>
+
+      <h3>Recently played</h3>
+      {history.length === 0 ? (
+        <p className="dash-dim">
+          Nothing yet — plays show up here once they end (anything over a minute).
+        </p>
+      ) : (
+        <table className="dash-devices">
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Who</th>
+              <th>When</th>
+              <th>Watched</th>
+              <th>How</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.id}>
+                <td>
+                  <div className="dash-device-name">{h.title}</div>
+                  <div className="dash-device-user">{h.subtitle}</div>
+                </td>
+                <td>
+                  {h.profileName || 'Unknown'}
+                  <div className="dash-dim">{h.deviceName}</div>
+                </td>
+                <td className="dash-dim">
+                  {new Date(h.startedAt).toLocaleString([], {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                  })}
+                </td>
+                <td>{Math.round(h.playingSeconds / 60)} min</td>
+                <td className="dash-dim">
+                  {h.channel
+                    ? `Live · ${h.channel}`
+                    : h.method === 'transcode'
+                      ? 'Converted'
+                      : h.method === 'remux'
+                        ? 'Direct stream'
+                        : h.method === 'direct'
+                          ? 'Direct play'
+                          : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="dash-capacity">
+        <label>
+          Keep history for
+          <select
+            value={stats.retentionDays}
+            onChange={(e) =>
+              window.api.dashboard
+                .setRetention(activeProfile.id, Number(e.target.value))
+                .then(load)
+                .catch(() => {})
+            }
+          >
+            {[30, 90, 180, 365].map((d) => (
+              <option key={d} value={d}>
+                {d} days
+              </option>
+            ))}
+          </select>
+        </label>
+        {confirmClear ? (
+          <>
+            <button
+              className="btn-danger dash-small-btn"
+              onClick={() =>
+                window.api.dashboard
+                  .clearHistory(activeProfile.id)
+                  .then(() => {
+                    setConfirmClear(false)
+                    load()
+                  })
+                  .catch(() => {})
+              }
+            >
+              Clear all history
+            </button>
+            <button className="btn-secondary dash-small-btn" onClick={() => setConfirmClear(false)}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button className="dash-stop" onClick={() => setConfirmClear(true)}>
+            Clear history…
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function pathLabel(device: DashboardDevice): { text: string; tone: 'good' | 'warn' | 'plain' } {
   if (device.online === false) return { text: 'Offline', tone: 'plain' }
   switch (device.path) {
@@ -408,7 +617,7 @@ export default function Dashboard(): JSX.Element | null {
   }
   if (!data) return <div className="page" />
 
-  const { streams, network, hardware } = data
+  const { streams, network, hardware, alerts } = data
   const capacity = network.uploadCapacityMbps
   const saveCapacity = (): void => {
     if (capacityDraft === null) return
@@ -430,6 +639,18 @@ export default function Dashboard(): JSX.Element | null {
           : `${streams.length} playing` +
             (streamingNow ? ` · ${formatMbps(network.currentMbps)} upload` : '')}
       </p>
+
+      {alerts.length > 0 && (
+        <section className="dash-section dash-alerts">
+          <h2>Alerts</h2>
+          {alerts.map((alert) => (
+            <div key={alert.key} className={`dash-alert dash-alert-${alert.level}`}>
+              {alert.message}
+              <span className="dash-dim"> · {timeAgo(new Date(alert.at).toISOString())}</span>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="dash-section">
         <div className="dash-section-head">
@@ -623,6 +844,7 @@ export default function Dashboard(): JSX.Element | null {
           </div>
         )}
       </section>
+      <HistorySection />
     </div>
   )
 }

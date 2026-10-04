@@ -380,6 +380,8 @@ export interface DashboardSnapshot {
     devices: DashboardDevice[]
   }
   hardware: DashboardHardware
+  // Problems right now (and in the last hour), newest first.
+  alerts: DashboardAlert[]
 }
 
 // --- Requests (friends ask for movies/shows; the admin handles them) ---
@@ -491,4 +493,43 @@ export interface ChannelGuide {
   from: number
   to: number
   channels: { channel: Channel; programs: ChannelProgram[] }[]
+}
+
+// --- Dashboard v3: history, stats and alerts ---
+
+export interface PlayHistoryEntry {
+  id: number
+  profileName: string
+  deviceName: string
+  mediaType: MediaType
+  mediaId: number
+  title: string
+  subtitle: string
+  method: 'direct' | 'remux' | 'transcode' | null
+  channel: string | null
+  // Unix ms.
+  startedAt: number
+  endedAt: number
+  playingSeconds: number
+}
+
+export interface DashboardStats {
+  days: number
+  plays: number
+  minutesWatched: number
+  topTitles: { title: string; plays: number; minutes: number }[]
+  byUser: { profileName: string; plays: number; minutes: number }[]
+  peakStreams: number
+  // Upload per day (oldest first), bytes.
+  uploadByDay: { day: string; bytes: number }[]
+  library: { movies: number; shows: number; episodes: number }
+  retentionDays: number
+}
+
+export interface DashboardAlert {
+  key: string
+  level: 'warning' | 'problem'
+  message: string
+  // Unix ms, when it was last seen.
+  at: number
 }

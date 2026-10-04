@@ -2,6 +2,7 @@ import type { Server } from 'http'
 import type { Socket } from 'net'
 import type express from 'express'
 import type {
+  DashboardAlert,
   DashboardDevice,
   DashboardHardware,
   DashboardSnapshot,
@@ -60,6 +61,9 @@ interface Stream {
   // What the stream is expected to take from the upload.
   expectedKbps: number | null
   channel: string | null
+  // Time actually spent playing (from heartbeats), for watch history.
+  playingSeconds: number
+  lastBeatAt: number
   startedAt: number
   lastSeen: number
   // (time, bytes) for the current rate.
@@ -93,7 +97,7 @@ function touch(owner: StreamOwner, mediaType: MediaType, mediaId: number): Strea
     // ('legacy' is every older app at once, so it's left alone.)
     if (owner.key !== 'legacy') {
       for (const other of streams.values()) {
-        if (other.owner.key === owner.key && other.key !== key) streams.delete(other.key)
+        if (other.owner.key === owner.key && other.key !== key) endStream(other)
       }
     }
     stream = {
@@ -108,6 +112,8 @@ function touch(owner: StreamOwner, mediaType: MediaType, mediaId: number): Strea
       reason: null,
       expectedKbps: null,
       channel: null,
+      playingSeconds: 0,
+      lastBeatAt: Date.now(),
       startedAt: Date.now(),
       lastSeen: Date.now(),
       recentBytes: [],
@@ -154,6 +160,11 @@ export function noteHeartbeat(
   const stream = touch(owner, mediaType, mediaId)
   if (!stream) return
   if (channel !== null) stream.channel = channel
+  // Playing time between beats (a progress save, with no state, counts as
+  // playing); a long gap is the player having been away, not watching.
+  const now = Date.now()
+  if (state !== 'paused') stream.playingSeconds += Math.min(30, (now - stream.lastBeatAt) / 1000)
+  stream.lastBeatAt = now
   if (Number.isFinite(positionSeconds) && positionSeconds >= 0) {
     stream.positionSeconds = positionSeconds
   }
@@ -260,10 +271,12 @@ function tick(): void {
   for (const [socket, entry] of sockets) collect(socket, entry)
   const now = Date.now()
   totalSamples.push({ t: now, mbps: (bytesSinceSample * 8) / (SAMPLE_INTERVAL_MS / 1000) / 1e6 })
+  usageBytes += bytesSinceSample
   bytesSinceSample = 0
+  usagePeakStreams = Math.max(usagePeakStreams, streams.size)
   while (totalSamples.length > SAMPLE_COUNT) totalSamples.shift()
   for (const stream of [...streams.values()]) {
-    if (now - stream.lastSeen > STREAM_TIMEOUT_MS) streams.delete(stream.key)
+    if (now - stream.lastSeen > STREAM_TIMEOUT_MS) endStream(stream)
   }
   for (const [key, block] of [...stopped]) {
     if (block.until < now) stopped.delete(key)
@@ -285,6 +298,60 @@ export function committedRemoteKbps(exceptOwnerKey: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// History hand-off (history.ts keeps it in the database)
+
+export interface EndedStream {
+  profileName: string
+  deviceName: string
+  ownerKey: string
+  mediaType: MediaType
+  mediaId: number
+  title: string
+  subtitle: string
+  method: DashboardStream['method']
+  channel: string | null
+  startedAt: number
+  endedAt: number
+  playingSeconds: number
+}
+
+let endedListener: ((stream: EndedStream) => void) | null = null
+
+export function onStreamEnded(fn: (stream: EndedStream) => void): void {
+  endedListener = fn
+}
+
+function endStream(stream: Stream): void {
+  streams.delete(stream.key)
+  endedListener?.({
+    profileName: stream.owner.profileName,
+    deviceName: stream.owner.deviceName,
+    ownerKey: stream.owner.key,
+    mediaType: stream.mediaType,
+    mediaId: stream.mediaId,
+    title: stream.info.title,
+    subtitle: stream.info.subtitle,
+    method: stream.method,
+    channel: stream.channel,
+    startedAt: stream.startedAt,
+    endedAt: Math.min(Date.now(), stream.lastSeen),
+    playingSeconds: Math.round(stream.playingSeconds)
+  })
+}
+
+let usageBytes = 0
+let usagePeakStreams = 0
+
+// Upload sent and the most streams at once since the last call, for the
+// hourly usage stats.
+export function takeUsage(): { bytes: number; peakStreams: number } {
+  const usage = { bytes: usageBytes, peakStreams: Math.max(usagePeakStreams, streams.size) }
+  usageBytes = 0
+  usagePeakStreams = streams.size
+  return usage
+}
+
+// ---------------------------------------------------------------------------
 // Stopping a stream
 
 export function onStreamStopped(
@@ -297,7 +364,7 @@ export function stopStream(key: string, message: string): boolean {
   const stream = streams.get(key)
   if (!stream) return false
   stopped.set(key, { message: message.trim().slice(0, 200), until: Date.now() + STOP_BLOCK_MS })
-  streams.delete(key)
+  endStream(stream)
   for (const fn of stopListeners) fn(stream.owner.key, stream.mediaType, stream.mediaId)
   return true
 }
@@ -348,7 +415,8 @@ export function snapshot(
   peers: PeerRecord[] | null,
   uploadCapacityMbps: number | null,
   conversions: ConversionRecord[] = [],
-  hardware: DashboardHardware = EMPTY_HARDWARE
+  hardware: DashboardHardware = EMPTY_HARDWARE,
+  alerts: DashboardAlert[] = []
 ): DashboardSnapshot {
   const now = Date.now()
   const streamList: DashboardStream[] = [...streams.values()]
@@ -406,7 +474,8 @@ export function snapshot(
       uploadCapacityMbps,
       devices: deviceList
     },
-    hardware
+    hardware,
+    alerts
   }
 }
 
