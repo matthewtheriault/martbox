@@ -11,6 +11,10 @@ export interface Profile {
   hasPin: boolean
   // A disabled user's devices are signed out and can't sign back in.
   disabled: boolean
+  // When the profile's photo last changed (ms), or null for none: the
+  // avatar is then avatarId's colour with the first letter. Also the
+  // photo URL's cache-buster (/api/profiles/:id/avatar?v=…).
+  avatarPhoto: number | null
 }
 
 // A device signed in as a user by redeeming a login code.
@@ -547,4 +551,62 @@ export interface DashboardAlert {
   message: string
   // Unix ms, when it was last seen.
   at: number
+}
+
+// Where an episode's intro and end credits are (Skip Intro, Up Next), in
+// seconds; null where nothing was found.
+export interface EpisodeMarkers {
+  introStart: number | null
+  introEnd: number | null
+  creditsStart: number | null
+}
+
+// A collection the admin made (collections.ts).
+export interface CollectionItem {
+  mediaType: 'movie' | 'show'
+  id: number
+  title: string
+  year: number | null
+  posterPath: string | null
+  backdropPath: string | null
+}
+
+export interface Collection {
+  id: number
+  name: string
+  description: string
+  onHome: boolean
+  items: CollectionItem[]
+}
+
+// Year in Review (watchLog.ts): one profile's watching in one year.
+export interface YearInReviewTitle {
+  mediaType: 'movie' | 'show'
+  id: number
+  title: string
+  year: number | null
+  posterPath: string | null
+  seconds: number
+}
+
+export interface YearInReview {
+  year: number
+  // Every year this profile has anything for, newest first.
+  years: number[]
+  totalSeconds: number
+  daysWatched: number
+  moviesWatched: number
+  episodesWatched: number
+  showsWatched: number
+  // Movies and episodes finished this year.
+  finished: number
+  topShows: YearInReviewTitle[]
+  topMovies: YearInReviewTitle[]
+  topGenres: { name: string; seconds: number }[]
+  // January first; Sunday first.
+  monthSeconds: number[]
+  weekdaySeconds: number[]
+  busiestDay: { day: string; seconds: number } | null
+  longestStreak: number
+  firstTitle: (YearInReviewTitle & { day: string }) | null
 }

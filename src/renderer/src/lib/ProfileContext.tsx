@@ -8,6 +8,8 @@ import { applyAccent, rememberedAccent } from './accent'
 interface ProfileContextValue {
   activeProfile: Profile
   switchProfile: () => void
+  // After the profile itself changed on the server (a new photo, colour).
+  updateActiveProfile: (profile: Profile) => void
   isHost: boolean
   // The PIN that unlocked activeProfile, if it has one — held only in
   // memory, never persisted. Threaded into progress reads/writes so a
@@ -151,6 +153,10 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
         switchProfile: () => {
           setActiveProfile(null)
           setActivePin(null)
+        },
+        updateActiveProfile: (profile: Profile) => {
+          setActiveProfile(profile)
+          setProfiles((all) => all?.map((p) => (p.id === profile.id ? profile : p)) ?? all)
         },
         // 'off' (not sharing yet) and 'host' both mean this machine actually
         // owns the files on disk; only 'client' means "remote viewer with no

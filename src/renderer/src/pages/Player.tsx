@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { Episode, MediaType } from '../../../shared/types'
+import type { Episode, EpisodeMarkers, MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
 import { streamUrl, formatTime, desktopPlaybackQuery } from '../lib/media'
@@ -21,6 +21,9 @@ const CONTROLS_HIDE_MS = 3000
 
 const STILL_WATCHING_MS = 3 * 60 * 60 * 1000
 
+// Sleep timer choices, in minutes; 'episode' stops at the end of this one.
+const SLEEP_OPTIONS: (number | 'episode')[] = [15, 30, 45, 60, 90, 'episode']
+
 export default function Player(): JSX.Element | null {
   const { mediaType, id } = useParams<{ mediaType: MediaType; id: string }>()
   const port = usePort()
@@ -36,6 +39,13 @@ export default function Player(): JSX.Element | null {
   const [method, setMethod] = useState<'direct' | 'remux' | 'transcode'>('direct')
   const [offset, setOffset] = useState(0)
   const [nextEpisode, setNextEpisode] = useState<Episode | null>(null)
+  const [markers, setMarkers] = useState<EpisodeMarkers | null>(null)
+  // Up Next shows once when the credits start; Watch Credits puts it away.
+  const creditsHandled = useRef(false)
+  const [sleep, setSleep] = useState<{ until: number } | 'episode' | null>(null)
+  const [sleepMenuOpen, setSleepMenuOpen] = useState(false)
+  const [sleptAt, setSleptAt] = useState<string | null>(null)
+  const [now, setNow] = useState(Date.now())
 
   const [paused, setPaused] = useState(false)
   // Pauses and asks after STILL_WATCHING_MS of playing with nothing pressed
@@ -101,6 +111,8 @@ export default function Player(): JSX.Element | null {
           const all = await window.api.shows.episodes(episode.showId)
           const index = all.findIndex((e) => e.id === episode.id)
           setNextEpisode(index >= 0 ? (all[index + 1] ?? null) : null)
+          setMarkers(await window.api.episodes.markers(episode.id).catch(() => null))
+          creditsHandled.current = false
         }
       }
 
@@ -316,8 +328,52 @@ export default function Player(): JSX.Element | null {
     if (!mediaType || !target) return
     const duration = target.totalDurationSeconds || offset
     window.api.progress.save(activeProfile.id, mediaType as MediaType, mediaId, duration, duration, profilePin)
+    if (sleep === 'episode') {
+      setSleep(null)
+      setUpNextCountdown(null)
+      setSleptAt('the end of the episode')
+      return
+    }
     if (nextEpisode) setUpNextCountdown(UP_NEXT_SECONDS)
   }
+
+  // The credits started: offer the next episode while they play.
+  const inCredits =
+    !!markers?.creditsStart && absoluteCurrent >= markers.creditsStart && absoluteCurrent < absoluteDuration - 1
+  useEffect(() => {
+    if (!inCredits || creditsHandled.current || !nextEpisode || sleep === 'episode') return
+    creditsHandled.current = true
+    setUpNextCountdown(UP_NEXT_SECONDS)
+  }, [inCredits, nextEpisode, sleep])
+
+  const inIntro =
+    markers?.introStart != null &&
+    markers.introEnd != null &&
+    absoluteCurrent >= markers.introStart &&
+    absoluteCurrent < markers.introEnd - 2
+  const skipIntro = (): void => {
+    if (markers?.introEnd != null) seekTo(markers.introEnd)
+  }
+
+  // Sleep timer: a clock while it runs, then pause.
+  useEffect(() => {
+    if (!sleep || sleep === 'episode') return
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      if (Date.now() >= sleep.until) {
+        videoRef.current?.pause()
+        setSleep(null)
+        setSleptAt('the sleep timer')
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [sleep])
+  const sleepLabel =
+    sleep === 'episode'
+      ? 'End of episode'
+      : sleep
+        ? `${Math.max(1, Math.ceil((sleep.until - now) / 60_000))} min`
+        : null
 
   useEffect(() => {
     if (upNextCountdown === null) return
@@ -348,7 +404,7 @@ export default function Player(): JSX.Element | null {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (upNextCountdown !== null) return
+      if (upNextCountdown !== null && videoRef.current?.ended) return
       switch (e.key) {
         case ' ':
         case 'k':
@@ -356,12 +412,21 @@ export default function Player(): JSX.Element | null {
           togglePlay()
           break
         case 'ArrowLeft':
+        case 'j':
           e.preventDefault()
           seekBy(-10)
           break
         case 'ArrowRight':
+        case 'l':
           e.preventDefault()
           seekBy(10)
+          break
+        case 'n':
+          goToNextEpisode()
+          break
+        case 'Escape':
+          // The first Esc leaves full screen (the browser does that).
+          if (!document.fullscreenElement) navigate(-1)
           break
         case 'ArrowUp':
           e.preventDefault()
@@ -377,12 +442,15 @@ export default function Player(): JSX.Element | null {
         case 'f':
           toggleFullscreen()
           break
+        case 's':
+          if (inIntro) skipIntro()
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [volume, offset, target, directPlay, upNextCountdown])
+  }, [volume, offset, target, directPlay, upNextCountdown, inIntro, markers, goToNextEpisode])
 
   useEffect(() => {
     const onInput = (): void => {
@@ -463,6 +531,33 @@ export default function Player(): JSX.Element | null {
         ))}
       </video>
 
+      {sleptAt && (
+        <div className="live-still">
+          <div className="live-still-box">
+            <h2>Paused for the night</h2>
+            <p>{target.title} paused at {sleptAt}.</p>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setSleptAt(null)
+                void videoRef.current?.play()
+              }}
+            >
+              Keep watching
+            </button>
+            <button className="btn-secondary" onClick={() => navigate(-1)}>
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
+
+      {inIntro && upNextCountdown === null && (
+        <button className="player-skip" onClick={skipIntro}>
+          Skip Intro
+        </button>
+      )}
+
       {upNextCountdown !== null && nextEpisode && (
         <div className="player-up-next">
           <p>Up Next</p>
@@ -472,7 +567,7 @@ export default function Player(): JSX.Element | null {
               Play Now ({upNextCountdown})
             </button>
             <button className="btn-secondary" onClick={() => setUpNextCountdown(null)}>
-              Cancel
+              {videoRef.current?.ended ? 'Cancel' : 'Watch Credits'}
             </button>
           </div>
         </div>
@@ -572,6 +667,44 @@ export default function Player(): JSX.Element | null {
               )}
             </div>
           )}
+          <div className="player-subtitle-menu">
+            <button
+              className={sleep ? 'player-control-btn player-control-btn-active' : 'player-control-btn'}
+              onClick={() => setSleepMenuOpen((v) => !v)}
+              title="Sleep timer"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M12.3 3a9 9 0 1 0 8.7 11.3A7 7 0 0 1 12.3 3z" />
+              </svg>
+              {sleepLabel && <span className="player-sleep-label">{sleepLabel}</span>}
+            </button>
+            {sleepMenuOpen && (
+              <div className="player-subtitle-options">
+                <button
+                  className={sleep === null ? 'active' : ''}
+                  onClick={() => {
+                    setSleep(null)
+                    setSleepMenuOpen(false)
+                  }}
+                >
+                  Off
+                </button>
+                {SLEEP_OPTIONS.filter((o) => o !== 'episode' || mediaType === 'episode').map((o) => (
+                  <button
+                    key={o}
+                    className={(o === 'episode' && sleep === 'episode') ? 'active' : ''}
+                    onClick={() => {
+                      setNow(Date.now())
+                      setSleep(o === 'episode' ? 'episode' : { until: Date.now() + o * 60_000 })
+                      setSleepMenuOpen(false)
+                    }}
+                  >
+                    {o === 'episode' ? 'End of this episode' : `${o} minutes`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button className="player-control-btn" onClick={toggleFullscreen} title="Fullscreen">
             {fullscreen ? (
               <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
   AppUpdateStatus,
@@ -24,6 +24,7 @@ import {
 import { ACCENTS, applyAccent } from '../lib/accent'
 import { useProfile } from '../lib/ProfileContext'
 import { AVATAR_COLORS } from '../lib/avatars'
+import Avatar from '../components/Avatar'
 
 function PeerPathLabel({ peer }: { peer: PeerConnection | undefined }): JSX.Element | null {
   if (!peer) return null
@@ -431,6 +432,12 @@ export default function Settings(): JSX.Element {
   return (
     <div className="page">
       <h1 className="page-title">Settings</h1>
+
+      <section className="settings-section">
+        <h2>Profile picture</h2>
+        <p className="settings-hint">A photo, or your colour with your initial. Shown wherever you pick your profile.</p>
+        <ProfilePictureEditor />
+      </section>
 
       <section className="settings-section">
         <h2>Accent colour</h2>
@@ -1136,6 +1143,83 @@ function AccentPicker(): JSX.Element {
           {a.name}
         </button>
       ))}
+    </div>
+  )
+}
+
+function ProfilePictureEditor(): JSX.Element {
+  const { activeProfile, profilePin, updateActiveProfile } = useProfile()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const run = async (change: () => Promise<Profile>): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      updateActiveProfile(await change())
+    } catch (e) {
+      setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const pickPhoto = async (file: File | undefined): Promise<void> => {
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) {
+      setError('That picture is over 8 MB.')
+      return
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    await run(() => window.api.avatars.setPhoto(activeProfile.id, profilePin, null, btoa(binary)))
+  }
+
+  return (
+    <div className="avatar-editor">
+      <Avatar profile={activeProfile} className="profile-avatar avatar-editor-preview" />
+      <div className="avatar-editor-controls">
+        <div className="settings-row">
+          <button className="btn-primary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {activeProfile.avatarPhoto ? 'Change Photo' : 'Choose Photo'}
+          </button>
+          {activeProfile.avatarPhoto && (
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() => void run(() => window.api.avatars.removePhoto(activeProfile.id, profilePin, null))}
+            >
+              Remove Photo
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={(e) => {
+              void pickPhoto(e.target.files?.[0])
+              e.target.value = ''
+            }}
+          />
+        </div>
+        <div className="profile-avatar-swatches avatar-editor-colors" role="radiogroup" aria-label="Colour">
+          {AVATAR_COLORS.map((c) => (
+            <button
+              key={c}
+              role="radio"
+              aria-checked={c === activeProfile.avatarId}
+              className={c === activeProfile.avatarId ? 'profile-avatar-swatch active' : 'profile-avatar-swatch'}
+              style={{ background: c }}
+              disabled={busy}
+              onClick={() => void run(() => window.api.avatars.setColor(activeProfile.id, profilePin, null, c))}
+            />
+          ))}
+        </div>
+        {error && <p className="settings-status-error">{error}</p>}
+      </div>
     </div>
   )
 }

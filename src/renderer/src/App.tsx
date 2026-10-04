@@ -4,6 +4,7 @@ import { PortProvider } from './lib/PortContext'
 import { ProfileProvider } from './lib/ProfileContext'
 import Sidebar from './components/Sidebar'
 import ServerVersionBanner from './components/ServerVersionBanner'
+import CommandPalette from './components/CommandPalette'
 
 const Home = lazy(() => import('./pages/Home'))
 const Movies = lazy(() => import('./pages/Movies'))
@@ -18,6 +19,8 @@ const Live = lazy(() => import('./pages/Live'))
 const LivePlayer = lazy(() => import('./pages/LivePlayer'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Search = lazy(() => import('./pages/Search'))
+const Collections = lazy(() => import('./pages/Collections'))
+const YearInReview = lazy(() => import('./pages/YearInReview'))
 
 export default function App(): JSX.Element {
   const location = useLocation()
@@ -26,8 +29,8 @@ export default function App(): JSX.Element {
     location.pathname.startsWith('/play/') || /^\/live\/\d+/.test(location.pathname)
 
   return (
-    <ProfileProvider>
-      <PortProvider>
+    <PortProvider>
+      <ProfileProvider>
         <div className={isPlayerRoute ? 'app-shell app-shell-immersive' : 'app-shell'}>
           {!isPlayerRoute && <Sidebar />}
           <main className={isPlayerRoute ? 'app-content app-content-full' : 'app-content'}>
@@ -47,11 +50,15 @@ export default function App(): JSX.Element {
                 <Route path="/live/:id" element={<LivePlayer />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/search" element={<Search />} />
+                <Route path="/collections" element={<Collections />} />
+                <Route path="/collections/:id" element={<Collections />} />
+                <Route path="/year" element={<YearInReview />} />
               </Routes>
             </Suspense>
           </main>
+          <CommandPalette />
         </div>
-      </PortProvider>
-    </ProfileProvider>
+      </ProfileProvider>
+    </PortProvider>
   )
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Profile } from '../../../shared/types'
 import { AVATAR_COLORS } from '../lib/avatars'
+import Avatar from './Avatar'
 
 interface ProfilePickerProps {
   profiles: Profile[]
@@ -55,6 +56,7 @@ export default function ProfilePicker({
   if (pinTarget) {
     return (
       <div className="profile-picker">
+        <Avatar profile={pinTarget} className="profile-avatar" />
         <h1 className="profile-picker-title">Enter PIN for {pinTarget.name}</h1>
         <div className="profile-picker-form">
           <input
@@ -89,8 +91,15 @@ export default function ProfilePicker({
       <div className="profile-picker-grid">
         {profiles.map((profile) => (
           <button key={profile.id} className="profile-tile" onClick={() => selectProfile(profile)}>
-            <span className="profile-avatar" style={{ background: profile.avatarId }}>
-              {profile.name.charAt(0).toUpperCase()}
+            <span className="profile-avatar-ring">
+              <Avatar profile={profile} className="profile-avatar" />
+              {profile.hasPin && (
+                <span className="profile-lock" title="Has a PIN">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                    <path d="M17 9h-1V7a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zm-7-2a2 2 0 0 1 4 0v2h-4V7z" />
+                  </svg>
+                </span>
+              )}
             </span>
             <span className="profile-tile-name">
               {profile.name}
@@ -101,7 +110,9 @@ export default function ProfilePicker({
 
         {!creating && (
           <button className="profile-tile profile-tile-add" onClick={() => setCreating(true)}>
-            <span className="profile-avatar profile-avatar-add">+</span>
+            <span className="profile-avatar-ring">
+              <span className="profile-avatar profile-avatar-add">+</span>
+            </span>
             <span className="profile-tile-name">Add Profile</span>
           </button>
         )}

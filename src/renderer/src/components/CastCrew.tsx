@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { CastMember, CrewMember } from '../../../shared/types'
+import TrailerModal from './TrailerModal'
 import { tmdbImageUrl } from '../lib/media'
 
 interface CastCrewProps {
@@ -8,6 +10,7 @@ interface CastCrewProps {
 }
 
 export default function CastCrew({ cast, crew, trailerKey }: CastCrewProps): JSX.Element | null {
+  const [trailerOpen, setTrailerOpen] = useState(false)
   if (cast.length === 0 && crew.length === 0 && !trailerKey) return null
 
   const crewByJob = new Map<string, string[]>()
@@ -24,15 +27,11 @@ export default function CastCrew({ cast, crew, trailerKey }: CastCrewProps): JSX
           </span>
         ))}
         {trailerKey && (
-          <button
-            className="btn-secondary"
-            onClick={() =>
-              window.api.system.openExternal(`https://www.youtube.com/watch?v=${trailerKey}`)
-            }
-          >
+          <button className="btn-secondary" onClick={() => setTrailerOpen(true)}>
             Watch Trailer
           </button>
         )}
+        {trailerOpen && trailerKey && <TrailerModal youtubeKey={trailerKey} onClose={() => setTrailerOpen(false)} />}
       </div>
       {cast.length > 0 && (
         <div className="cast-list">

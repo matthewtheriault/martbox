@@ -10,6 +10,7 @@ import PosterCard from '../components/PosterCard'
 import FilePathRow from '../components/FilePathRow'
 import CastCrew from '../components/CastCrew'
 import WatchlistButton from '../components/WatchlistButton'
+import AddToCollection from '../components/AddToCollection'
 
 export default function ShowDetail(): JSX.Element | null {
   const { id } = useParams()
@@ -150,6 +151,7 @@ export default function ShowDetail(): JSX.Element | null {
               mediaType="show"
               mediaId={show.id}
             />
+            <AddToCollection mediaType="show" mediaId={show.id} />
             {isHost && activeProfile.isAdmin && (
               <button className="btn-danger" onClick={removeShow} disabled={removing}>
                 {removing ? 'Removing…' : 'Remove from Library'}

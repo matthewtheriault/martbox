@@ -344,6 +344,11 @@ let usagePeakStreams = 0
 
 // Upload sent and the most streams at once since the last call, for the
 // hourly usage stats.
+// Background jobs (intro detection) wait while anything is playing.
+export function activeStreamCount(): number {
+  return streams.size
+}
+
 export function takeUsage(): { bytes: number; peakStreams: number } {
   const usage = { bytes: usageBytes, peakStreams: Math.max(usagePeakStreams, streams.size) }
   usageBytes = 0

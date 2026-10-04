@@ -391,6 +391,16 @@ function migrateDevicesForSpeed(): void {
 
 migrateDevicesForSpeed()
 
+// Profile photos (avatars.ts): when the photo last changed.
+function migrateProfilesForPhoto(): void {
+  const cols = db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'avatar_photo')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN avatar_photo INTEGER')
+  }
+}
+
+migrateProfilesForPhoto()
+
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
     | { value: string }

@@ -1,4 +1,5 @@
 import { sep } from 'path'
+import { noteProgress } from './watchLog'
 import { db, encryptValue, decryptValue } from './db'
 import { logError } from './errorLog'
 import type {
@@ -125,7 +126,8 @@ function rowToProfile(r: any): Profile {
     createdAt: r.created_at,
     isAdmin: !!r.is_admin,
     hasPin: !!r.pin,
-    disabled: !!r.disabled
+    disabled: !!r.disabled,
+    avatarPhoto: r.avatar_photo ?? null
   }
 }
 
@@ -143,6 +145,14 @@ export function createProfile(name: string, avatarId: string): Profile {
     .prepare('INSERT INTO profiles (name, avatar_id, is_admin) VALUES (?, ?, ?)')
     .run(name, avatarId, isFirst ? 1 : 0)
   return rowToProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(info.lastInsertRowid))
+}
+
+export function setProfileAvatarColor(id: number, color: string): void {
+  db.prepare('UPDATE profiles SET avatar_id = ? WHERE id = ?').run(color, id)
+}
+
+export function setProfileAvatarPhoto(id: number, version: number | null): void {
+  db.prepare('UPDATE profiles SET avatar_photo = ? WHERE id = ?').run(version, id)
 }
 
 export function renameProfile(id: number, name: string): void {
@@ -783,6 +793,12 @@ export function saveProgress(
   _pin?: string | null
 ): void {
   const watched = durationSeconds > 0 && positionSeconds / durationSeconds >= 0.92 ? 1 : 0
+  const previous = db
+    .prepare(
+      'SELECT position_seconds AS position, updated_at AS updatedAt FROM watch_progress WHERE profile_id = ? AND media_type = ? AND media_id = ?'
+    )
+    .get(profileId, mediaType, mediaId) as { position: number; updatedAt: string } | undefined
+  noteProgress(profileId, mediaType, mediaId, previous ?? null, positionSeconds)
   db.prepare(
     `INSERT INTO watch_progress (profile_id, media_type, media_id, position_seconds, duration_seconds, watched, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
