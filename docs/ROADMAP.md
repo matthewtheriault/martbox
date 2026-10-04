@@ -170,7 +170,9 @@ house, and the dashboard shows their connection. Order: users/login codes
 and security review (done), Tailscale speed and access rules (done),
 iPhone/Apple TV sign-in (unblocks "require a login"), dashboard v1 (Now
 Playing + Network, the measuring tool for the next part), 4K/HDR and
-transcoding, dashboard v2/v3.
+transcoding, dashboard v2/v3, then the dashboard on the admin's phone
+(Now Playing with stop, requests to approve, network, server; iPhone build
+18, server 0.11.0).
 
 **Phase 1c — Requests (before 1b).** RQSTMart built into MartBox, so friends
 need one app. Done when a friend requests a show from their iPhone, it
@@ -219,13 +221,15 @@ IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the
   - Dashboard shows who's on a channel, for how long and the upload it uses,
     with a stop button.
   - Viewers on the same channel at the same quality share one transcode.
-- Later: filler between items (trailers, bumpers from the library), a logo
-  overlay.
+- Filler between items (trailers, bumpers from the library) and a channel
+  logo in the guide and the player's corner.
 - **Built** (server 0.9.0, iPhone build 17, Apple TV build 20): schedule from
   the clock (`channelSchedule.ts`), channels from shows / movie filters with
   real file lengths (`channels.ts`), desktop Live page + editor + player,
   iPhone and Apple TV Live tabs (shared `LiveTuner`), quality cap, "Still
-  watching?" after 3 h. Still to do: shared streams, time blocks, filler.
+  watching?" after 3 h. Then (server 0.11.0, iPhone build 18, Apple TV
+  build 21): time blocks, filler, logos, and viewers of a channel sharing
+  one conversion.
 
 **Phase 2 — Design foundations.** Done when the palette, type scale, spacing
 and corner rules are written down as design tokens and shown on one sample

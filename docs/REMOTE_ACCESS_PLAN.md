@@ -340,7 +340,9 @@ version ships early.
   temperatures and SMART health still to do (they need vendor tools or
   admin rights on Windows).
 - **v3 (after Phase 4):** History, stats, alerts, and the dashboard on
-  mobile for admin devices.
+  mobile for admin devices. **Built**: history/stats/alerts in 0.10.0; the
+  iPhone Dashboard screen (admin profile only, `/api/admin/*`, 403 for
+  everyone else) in 0.11.0 / iPhone build 18.
 
 **Now Playing** (one card per active stream, live)
 - User + avatar, device (e.g. "Alex's iPhone"), title with poster, progress
