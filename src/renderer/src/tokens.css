@@ -1,0 +1,95 @@
+/* Generated from design/tokens.json by scripts/build-tokens.mjs — do not edit. */
+
+:root {
+  --bg: #000000;
+  --surface: #121216;
+  --surface-hover: #1c1c22;
+  --surface-input: #18181d;
+  --surface-sidebar: rgba(14, 14, 18, 0.72);
+  --border: rgba(255, 255, 255, 0.08);
+  --fill-subtle: rgba(255, 255, 255, 0.06);
+  --fill-secondary: rgba(255, 255, 255, 0.08);
+  --fill-secondary-hover: rgba(255, 255, 255, 0.14);
+  --track: rgba(255, 255, 255, 0.16);
+  --text: #f5f5f7;
+  --text-overview: #d8d8dd;
+  --text-dim: #98979f;
+  --text-dimmer: #8a8993;
+  --accent-start: #5ac8fa;
+  --accent-end: #3b9eff;
+  --accent-ink: #000000;
+  --accent-wash: rgba(90, 200, 250, 0.16);
+  --accent-glow: rgba(90, 200, 250, 0.4);
+  --danger: #ff5470;
+  --danger-text: #ff8296;
+  --danger-fill: rgba(255, 84, 112, 0.14);
+  --success: #34d399;
+  --focus-ring: #ffffff;
+  --shadow-poster: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-poster-focus: 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(90, 200, 250, 0.6);
+  --shadow-primary: 0 6px 20px rgba(90, 200, 250, 0.35);
+  --shadow-brand: 0 0 18px rgba(90, 200, 250, 0.55);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --tv-safe-x: 96px;
+  --tv-safe-y: 54px;
+  --tv-gap: 40px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --poster-w: 170px;
+  --poster-h: 255px;
+  --tv-poster-w: 240px;
+  --sidebar-w: 232px;
+  --tap-min: 44px;
+}
+
+:root[data-accent='purple'] {
+  --accent-start: #a78bfa;
+  --accent-end: #e879f9;
+  --accent-wash: rgba(167, 139, 250, 0.16);
+  --accent-glow: rgba(167, 139, 250, 0.4);
+  --shadow-poster-focus: 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(167, 139, 250, 0.6);
+  --shadow-primary: 0 6px 20px rgba(167, 139, 250, 0.35);
+  --shadow-brand: 0 0 18px rgba(167, 139, 250, 0.55);
+}
+
+:root[data-accent='pink'] {
+  --accent-start: #f472b6;
+  --accent-end: #fb7185;
+  --accent-wash: rgba(244, 114, 182, 0.16);
+  --accent-glow: rgba(244, 114, 182, 0.4);
+  --shadow-poster-focus: 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(244, 114, 182, 0.6);
+  --shadow-primary: 0 6px 20px rgba(244, 114, 182, 0.35);
+  --shadow-brand: 0 0 18px rgba(244, 114, 182, 0.55);
+}
+
+:root[data-accent='orange'] {
+  --accent-start: #fb923c;
+  --accent-end: #facc15;
+  --accent-wash: rgba(251, 146, 60, 0.16);
+  --accent-glow: rgba(251, 146, 60, 0.4);
+  --shadow-poster-focus: 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(251, 146, 60, 0.6);
+  --shadow-primary: 0 6px 20px rgba(251, 146, 60, 0.35);
+  --shadow-brand: 0 0 18px rgba(251, 146, 60, 0.55);
+}
+
+:root[data-accent='green'] {
+  --accent-start: #34d399;
+  --accent-end: #a3e635;
+  --accent-wash: rgba(52, 211, 153, 0.16);
+  --accent-glow: rgba(52, 211, 153, 0.4);
+  --shadow-poster-focus: 0 14px 34px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(52, 211, 153, 0.6);
+  --shadow-primary: 0 6px 20px rgba(52, 211, 153, 0.35);
+  --shadow-brand: 0 0 18px rgba(52, 211, 153, 0.55);
+}

@@ -171,6 +171,12 @@ const api = {
     pickLogo: (requestingProfileId: number) =>
       invoke<string | null>('channels:pickLogo', requestingProfileId)
   },
+  appearance: {
+    get: (profileId: number, pin: string | null) =>
+      invoke<string | null>('appearance:get', profileId, pin),
+    set: (profileId: number, pin: string | null, accent: string) =>
+      invoke<void>('appearance:set', profileId, pin, accent)
+  },
   requests: {
     discover: () => invoke<RequestDiscover>('requests:discover'),
     search: (query: string) => invoke<RequestableTitle[]>('requests:search', query),

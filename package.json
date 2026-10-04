@@ -19,7 +19,8 @@
     "release:mac": "bash scripts/release-mac.sh",
     "postinstall": "electron-builder install-app-deps",
     "prepare": "git config core.hooksPath .githooks || true",
-    "check:sensitive": "bash scripts/check-sensitive.sh"
+    "check:sensitive": "bash scripts/check-sensitive.sh",
+    "tokens": "node scripts/build-tokens.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.9",

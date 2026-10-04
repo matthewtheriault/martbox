@@ -3,6 +3,7 @@ import type { Profile } from '../../../shared/types'
 import type { RemoteAccessMode, RemoteAccessStatus } from '../../../shared/remoteAccess'
 import ProfilePicker from '../components/ProfilePicker'
 import ServerModeChooser from '../components/ServerModeChooser'
+import { applyAccent, rememberedAccent } from './accent'
 
 interface ProfileContextValue {
   activeProfile: Profile
@@ -34,6 +35,19 @@ export function ProfileProvider({ children }: { children: ReactNode }): JSX.Elem
   // know something is actually wrong. Ref because refreshProfiles's retry
   // closure needs the latest value without re-subscribing to status.
   const givenUp = useRef(false)
+
+  // The active profile's accent: the one remembered here first, then the
+  // one saved on the server.
+  useEffect(() => {
+    applyAccent(rememberedAccent())
+    if (!activeProfile) return
+    window.api.appearance
+      .get(activeProfile.id, activePin)
+      .then((saved) => {
+        if (saved) applyAccent(saved)
+      })
+      .catch(() => {})
+  }, [activeProfile, activePin])
 
   // Joining a friend's server kicks off the Tailscale sidecar connection
   // without waiting for it (connectClient resolves immediately), so this can
