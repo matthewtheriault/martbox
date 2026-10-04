@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { Episode, MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
-import { streamUrl, formatTime } from '../lib/media'
+import { streamUrl, formatTime, desktopPlaybackQuery } from '../lib/media'
 
 interface PlaybackTarget {
   title: string
@@ -28,6 +28,10 @@ export default function Player(): JSX.Element | null {
   const containerRef = useRef<HTMLDivElement>(null)
   const [target, setTarget] = useState<PlaybackTarget | null>(null)
   const [directPlay, setDirectPlay] = useState(true)
+  // How the server sends it (/api/playback): the path to stream, and
+  // whether the original video is kept ('remux') or converted.
+  const [streamPath, setStreamPath] = useState<string | null>(null)
+  const [method, setMethod] = useState<'direct' | 'remux' | 'transcode'>('direct')
   const [offset, setOffset] = useState(0)
   const [nextEpisode, setNextEpisode] = useState<Episode | null>(null)
 
@@ -51,8 +55,14 @@ export default function Player(): JSX.Element | null {
   // on `src` (not just `target`) in the effects below is what makes their
   // listeners follow the video element across that remount instead of
   // staying attached to the one that just got torn down.
+  const offsetQuery = (path: string): string =>
+    directPlay || offset <= 0 ? '' : `${path.includes('?') ? '&' : '?'}t=${offset}`
   const src =
-    mediaType && port ? streamUrl(mediaType as MediaType, mediaId, port, directPlay ? undefined : offset) : ''
+    !mediaType || !port
+      ? ''
+      : streamPath
+        ? `http://127.0.0.1:${port}${streamPath}${offsetQuery(streamPath)}`
+        : streamUrl(mediaType as MediaType, mediaId, port, directPlay ? undefined : offset)
 
   useEffect(() => {
     if (!mediaType || !id) return
@@ -88,15 +98,35 @@ export default function Player(): JSX.Element | null {
         }
       }
 
-      const probeRes = await fetch(`http://127.0.0.1:${port}/probe/${mediaType}/${mediaId}`)
-      const probe = await probeRes.json()
+      // The original whenever this player decodes it; servers from before
+      // /api/playback (0.5.x) answer 404 and get the old rule.
+      let isDirect = false
+      const planRes = await fetch(
+        `http://127.0.0.1:${port}/api/playback/${mediaType}/${mediaId}?${desktopPlaybackQuery()}`
+      ).catch(() => null)
+      if (planRes?.ok) {
+        const plan = await planRes.json()
+        isDirect = plan.method === 'direct'
+        // The file's real length, measured by the server — more reliable than
+        // a saved progress record or the library's rounded runtime, and a
+        // streamed (not direct) video can't tell its own length.
+        if (plan.durationSeconds) totalDurationSeconds = plan.durationSeconds
+        setMethod(plan.method)
+        setStreamPath(plan.path)
+      } else {
+        const probeRes = await fetch(`http://127.0.0.1:${port}/probe/${mediaType}/${mediaId}`)
+        const probe = await probeRes.json()
+        isDirect = !!probe?.directPlay
+        setMethod(isDirect ? 'direct' : 'transcode')
+        setStreamPath(null)
+      }
 
       const subsRes = await fetch(`http://127.0.0.1:${port}/subtitles/${mediaType}/${mediaId}`)
       setSubtitleTracks(await subsRes.json().catch(() => []))
       setSelectedSubtitle(null)
 
-      setDirectPlay(!!probe?.directPlay)
-      setOffset(probe?.directPlay ? 0 : startSeconds)
+      setDirectPlay(isDirect)
+      setOffset(isDirect ? 0 : startSeconds)
       setTarget({ title, totalDurationSeconds, startSeconds })
     }
 
@@ -421,7 +451,11 @@ export default function Player(): JSX.Element | null {
           <span className="player-time">
             {formatTime(absoluteCurrent)} / {absoluteDuration ? formatTime(absoluteDuration) : '--:--'}
           </span>
-          {!directPlay && <span className="player-transcode-badge">Transcoding</span>}
+          {!directPlay && (
+            <span className="player-transcode-badge">
+              {method === 'remux' ? 'Direct stream' : 'Converting'}
+            </span>
+          )}
           <span className="player-title-inline">{target.title}</span>
           <div className="player-volume">
             <button className="player-control-btn" onClick={toggleMute}>

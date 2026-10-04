@@ -751,11 +751,14 @@ async function streamTranscode(
 ): Promise<void> {
   const startSeconds = parseFloat((req.query.t as string) || '0') || 0
   const videoCodec = probe.videoCodec
+  // ?copy=1: /api/playback found the desktop player decodes this video (e.g.
+  // HEVC in an MKV), so it's repackaged untouched; H.264 always was.
+  const copyVideo = req.query.copy === '1' || videoCodec === 'h264'
 
-  const hardwareEncoder = videoCodec === 'h264' ? null : await detectHardwareEncoder()
+  const hardwareEncoder = copyVideo ? null : await detectHardwareEncoder()
   // HDR re-encoded for the desktop player gets SDR colours too, at 1080p at
   // most — tone mapping a full 4K picture on the CPU is too slow to keep up.
-  const toneMap = videoCodec === 'h264' ? [] : toneMapFilters(probe)
+  const toneMap = copyVideo ? [] : toneMapFilters(probe)
   const toneMapArgs = toneMap.length
     ? [
         '-vf',
@@ -764,7 +767,13 @@ async function streamTranscode(
       ]
     : []
 
-  const decodeArgs = videoCodec === 'h264' ? [] : await hwDecodeArgs()
+  const decodeArgs = copyVideo ? [] : await hwDecodeArgs()
+  // Chromium plays AAC and MP3 as they are; anything else (AC-3, E-AC-3,
+  // DTS…) becomes AAC, keeping up to 5.1.
+  const audioArgs =
+    probe.audioCodec === 'aac' || probe.audioCodec === 'mp3'
+      ? ['-c:a', 'copy']
+      : ['-c:a', 'aac', '-ac', String(Math.min(probe.audioChannels ?? 2, 6))]
   const args = [
     '-ss',
     String(startSeconds),
@@ -776,8 +785,8 @@ async function streamTranscode(
     '-map',
     '0:a:0?',
     ...toneMapArgs,
-    ...(videoCodec === 'h264'
-      ? ['-c:v', 'copy']
+    ...(copyVideo
+      ? ['-c:v', 'copy', ...(videoCodec === 'hevc' ? ['-tag:v', 'hvc1'] : [])]
       : hardwareEncoder
         ? HARDWARE_ENCODER_ARGS[hardwareEncoder]
         : // Benchmarked on this host: 'medium'+crf20 sustains ~5x realtime
@@ -795,10 +804,7 @@ async function streamTranscode(
     // active) turns that into small, frequent fragments.
     '-force_key_frames',
     'expr:gte(t,n_forced*2)',
-    '-c:a',
-    'aac',
-    '-ac',
-    '2',
+    ...audioArgs,
     '-movflags',
     'frag_keyframe+empty_moov+default_base_moof',
     '-f',
@@ -1449,12 +1455,19 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       bandwidthKbps,
       bandwidthIsServerUpload: serverLimited,
       quality,
-      canRemux: (await fileKeyframes(filePath)) !== null,
+      // The desktop's repackaging is one continuous stream, so it needs no
+      // keyframe index (HLS remuxing does).
+      canRemux: req.query.client === 'desktop' || (await fileKeyframes(filePath)) !== null,
       avoid,
       hevcEncode: (await detectHevcEncoder()) !== null
     })
-    const path =
-      decision.method === 'direct'
+    // The desktop app's player (Chromium) has no HLS: its original-video
+    // stream is /stream repackaging, and its conversion the /stream one.
+    const desktop = req.query.client === 'desktop'
+    const path = desktop
+      ? `/stream/${mediaType}/${id}` +
+        (decision.method === 'direct' ? '?direct=1' : decision.method === 'remux' ? '?copy=1' : '')
+      : decision.method === 'direct'
         ? `/stream/${mediaType}/${id}?direct=1`
         : decision.method === 'remux'
           ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio}`
