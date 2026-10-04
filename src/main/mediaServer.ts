@@ -1499,6 +1499,9 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
           ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio}`
           : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}` +
             `&audio=${decision.audio}&codec=${decision.codec}`
+    // A Live Channel: viewers at the same quality share the conversion.
+    const hlsPath =
+      req.query.channel === '1' && path.startsWith('/hls/') ? `${path}&shared=1` : path
     logTranscode(
       `PLAYBACK ${mediaType}/${id} method=${decision.method} bandwidthKbps=${bandwidthKbps ?? 'unknown'} quality=${quality} avoid=${avoid.join(',') || 'none'} — ${decision.reason}`
     )
@@ -1519,7 +1522,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     }
     res.json({
       method: decision.method,
-      path,
+      path: hlsPath,
       reason: decision.reason,
       durationSeconds: probe.durationSeconds
     })

@@ -1,9 +1,15 @@
 import { db } from './db'
 import { probeFile } from './ffprobe'
 import { getEpisode, getMovie, getShow } from './repository'
-import { shuffled, slotAt, slotsBetween, type ScheduleItem } from './channelSchedule'
+import {
+  programsBetween,
+  shuffled,
+  type ScheduleItem,
+  type TimeBlock
+} from './channelSchedule'
 import type {
   Channel,
+  ChannelBlock,
   ChannelConfig,
   ChannelGuide,
   ChannelNow,
@@ -38,6 +44,15 @@ db.exec(`
   );
 `)
 
+// Time blocks' play orders, built like items: JSON [[[mediaType, mediaId,
+// seconds], ...], ...], one list per block in config order.
+{
+  const cols = db.prepare('PRAGMA table_info(channels)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'block_items')) {
+    db.exec("ALTER TABLE channels ADD COLUMN block_items TEXT NOT NULL DEFAULT '[]'")
+  }
+}
+
 // A channel this long would take ages to build and nobody would get through
 // it; plenty for "every episode of three long-running shows".
 const MAX_ITEMS = 5000
@@ -48,6 +63,7 @@ interface ChannelRow {
   name: string
   config: string
   items: string
+  block_items: string
   epoch: number
   seed: number
 }
@@ -157,10 +173,10 @@ async function itemsFor(source: ChannelSource): Promise<ScheduleItem[]> {
   return items
 }
 
-async function buildItems(config: ChannelConfig, seed: number): Promise<ScheduleItem[]> {
+async function collect(sources: ChannelSource[]): Promise<ScheduleItem[]> {
   const seen = new Set<string>()
-  let items: ScheduleItem[] = []
-  for (const source of config.sources) {
+  const items: ScheduleItem[] = []
+  for (const source of sources) {
     for (const item of await itemsFor(source)) {
       const key = `${item.mediaType}:${item.mediaId}`
       if (seen.has(key)) continue
@@ -168,13 +184,85 @@ async function buildItems(config: ChannelConfig, seed: number): Promise<Schedule
       items.push(item)
     }
   }
-  if (config.order === 'shuffle') items = shuffled(items, seed)
-  return items.slice(0, MAX_ITEMS)
+  return items
+}
+
+// A lineup's play order, with one filler item (in its own shuffled order)
+// after each program when the channel has filler.
+async function buildLineup(
+  sources: ChannelSource[],
+  order: ChannelConfig['order'],
+  filler: ScheduleItem[],
+  seed: number
+): Promise<ScheduleItem[]> {
+  let items = await collect(sources)
+  if (order === 'shuffle') items = shuffled(items, seed)
+  items = items.slice(0, MAX_ITEMS)
+  if (filler.length === 0) return items
+  const fillerOrder = shuffled(filler, seed + 1)
+  return items.flatMap((item, i) => [item, fillerOrder[i % fillerOrder.length]])
+}
+
+async function buildItems(
+  config: ChannelConfig,
+  seed: number
+): Promise<{ items: ScheduleItem[]; blockItems: ScheduleItem[][] }> {
+  const filler = await collect(config.filler ?? [])
+  const items = await buildLineup(config.sources, config.order, filler, seed)
+  const blockItems: ScheduleItem[][] = []
+  for (const [i, block] of (config.blocks ?? []).entries()) {
+    blockItems.push(await buildLineup(block.sources, block.order, filler, seed + 7 * (i + 1)))
+  }
+  return { items, blockItems }
+}
+
+function parseBlockItems(json: string): ScheduleItem[][] {
+  try {
+    return (JSON.parse(json) as [string, number, number][][]).map((list) =>
+      list.map(([mediaType, mediaId, seconds]) => ({
+        mediaType: mediaType === 'movie' ? 'movie' : 'episode',
+        mediaId,
+        seconds
+      }))
+    )
+  } catch {
+    return []
+  }
+}
+
+function minuteOf(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim())
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  return h < 24 && min < 60 ? h * 60 + min : null
+}
+
+// The channel's time blocks with their built play orders (blocks with a bad
+// time or nothing to play are skipped).
+function timeBlocks(config: ChannelConfig, blockItems: ScheduleItem[][]): TimeBlock[] {
+  const blocks: TimeBlock[] = []
+  ;(config.blocks ?? []).forEach((block: ChannelBlock, i) => {
+    const startMinute = minuteOf(block.start)
+    const endMinute = minuteOf(block.end)
+    const items = blockItems[i] ?? []
+    if (startMinute === null || endMinute === null || items.length === 0) return
+    blocks.push({ startMinute, endMinute, items })
+  })
+  return blocks
 }
 
 function serialiseItems(items: ScheduleItem[]): string {
   return JSON.stringify(
     items.map((i) => [i.mediaType, i.mediaId, Math.round(i.seconds * 1000) / 1000])
+  )
+}
+
+function serialiseBlocks(blockItems: ScheduleItem[][]): string {
+  return JSON.stringify(
+    blockItems.map((list) =>
+      list.map((i) => [i.mediaType, i.mediaId, Math.round(i.seconds * 1000) / 1000])
+    )
   )
 }
 
@@ -184,7 +272,17 @@ function normaliseConfig(config: ChannelConfig): ChannelConfig {
     number: Number.isInteger(config.number) && config.number > 0 ? config.number : 1,
     sources: config.sources,
     order: config.order === 'inOrder' ? 'inOrder' : 'shuffle',
-    maxQuality: ['1080', '720', '480'].includes(config.maxQuality) ? config.maxQuality : 'auto'
+    maxQuality: ['1080', '720', '480'].includes(config.maxQuality) ? config.maxQuality : 'auto',
+    blocks: (config.blocks ?? [])
+      .filter((b) => minuteOf(b.start) !== null && minuteOf(b.end) !== null && b.sources.length > 0)
+      .map((b) => ({
+        start: b.start.trim(),
+        end: b.end.trim(),
+        sources: b.sources,
+        order: b.order === 'inOrder' ? 'inOrder' : 'shuffle'
+      })),
+    filler: config.filler ?? [],
+    logoPath: config.logoPath ?? null
   }
 }
 
@@ -197,24 +295,34 @@ export async function saveChannel(id: number | null, input: ChannelConfig): Prom
       ? undefined
       : (db.prepare('SELECT * FROM channels WHERE id = ?').get(id) as ChannelRow | undefined)
   const seed = existing?.seed ?? Math.floor(Math.random() * 2 ** 31)
-  const items = await buildItems(config, seed)
+  const { items, blockItems } = await buildItems(config, seed)
   let rowId: number
   if (existing) {
     db.prepare(
-      `UPDATE channels SET number = ?, name = ?, config = ?, items = ?, updated_at = datetime('now')
+      `UPDATE channels SET number = ?, name = ?, config = ?, items = ?, block_items = ?,
+         updated_at = datetime('now')
        WHERE id = ?`
-    ).run(config.number, config.name, JSON.stringify(config), serialiseItems(items), existing.id)
+    ).run(
+      config.number,
+      config.name,
+      JSON.stringify(config),
+      serialiseItems(items),
+      serialiseBlocks(blockItems),
+      existing.id
+    )
     rowId = existing.id
   } else {
     const result = db
       .prepare(
-        'INSERT INTO channels (number, name, config, items, epoch, seed) VALUES (?, ?, ?, ?, ?, ?)'
+        `INSERT INTO channels (number, name, config, items, block_items, epoch, seed)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         config.number,
         config.name,
         JSON.stringify(config),
         serialiseItems(items),
+        serialiseBlocks(blockItems),
         Date.now(),
         seed
       )
@@ -237,8 +345,12 @@ export function rebuildAllChannels(): Promise<void> {
     for (const row of rows()) {
       try {
         const config = JSON.parse(row.config) as ChannelConfig
-        const items = await buildItems(config, row.seed)
-        db.prepare('UPDATE channels SET items = ? WHERE id = ?').run(serialiseItems(items), row.id)
+        const { items, blockItems } = await buildItems(config, row.seed)
+        db.prepare('UPDATE channels SET items = ?, block_items = ? WHERE id = ?').run(
+          serialiseItems(items),
+          serialiseBlocks(blockItems),
+          row.id
+        )
       } catch {
         /* keep the old schedule */
       }
@@ -283,17 +395,22 @@ export function channelNow(id: number, t = Date.now()): ChannelNow | null {
   const row = db.prepare('SELECT * FROM channels WHERE id = ?').get(id) as ChannelRow | undefined
   if (!row) return null
   const items = parseItems(row.items)
-  const slot = slotAt(items, row.epoch, t)
-  if (!slot) return null
-  const now = program(items[slot.index], slot.start, slot.end)
+  const blocks = timeBlocks(JSON.parse(row.config), parseBlockItems(row.block_items))
+  // What's on now and next, each cut to the time block it plays in.
+  const [current, following] = programsBetween(items, blocks, row.epoch, t, t + 1, 2)
+  const list = (block: number): ScheduleItem[] => (block === -1 ? items : blocks[block].items)
+  if (!current) return null
+  const now = program(list(current.block)[current.index], current.start, current.end)
   if (!now) return null
-  const nextIndex = (slot.index + 1) % items.length
-  const nextEnd = slot.end + items[nextIndex].seconds * 1000
+  const nextSlot =
+    following ?? programsBetween(items, blocks, row.epoch, current.end, current.end + 1, 1)[0]
   return {
     channel: toChannel(row, items),
     program: now,
-    offsetSeconds: Math.max(0, (t - slot.start) / 1000),
-    next: program(items[nextIndex], slot.end, nextEnd)
+    // Into the file itself: a program cut in by a block boundary carries
+    // on from where its item had got to.
+    offsetSeconds: Math.max(0, (t - current.itemStart) / 1000),
+    next: nextSlot ? program(list(nextSlot.block)[nextSlot.index], nextSlot.start, nextSlot.end) : null
   }
 }
 
@@ -303,8 +420,15 @@ export function channelGuide(from: number, to: number): ChannelGuide {
     to,
     channels: rows().map((row) => {
       const items = parseItems(row.items)
-      const programs = slotsBetween(items, row.epoch, from, to)
-        .map((slot) => program(items[slot.index], slot.start, slot.end))
+      const blocks = timeBlocks(JSON.parse(row.config), parseBlockItems(row.block_items))
+      const programs = programsBetween(items, blocks, row.epoch, from, to)
+        .map((slot) =>
+          program(
+            (slot.block === -1 ? items : blocks[slot.block].items)[slot.index],
+            slot.start,
+            slot.end
+          )
+        )
         .filter((p): p is ChannelProgram => p !== null)
       return { channel: toChannel(row, items), programs }
     })

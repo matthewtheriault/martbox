@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
   Channel,
+  ChannelBlock,
   ChannelConfig,
   ChannelGuide,
   ChannelSource,
@@ -9,6 +10,8 @@ import type {
   Show
 } from '../../../shared/types'
 import { useProfile } from '../lib/ProfileContext'
+import { usePort } from '../lib/PortContext'
+import { imageUrl } from '../lib/media'
 
 // Live Channels: always-on channels made from the library (src/main/
 // channels.ts), shown as a TV guide. Picking a channel tunes in to whatever
@@ -35,35 +38,23 @@ function sourceLabel(source: ChannelSource, shows: Show[], movies: Movie[]): str
   return parts.length ? `${parts.join(' · ')} movies` : 'All movies'
 }
 
-function ChannelEditor({
-  channel,
-  nextNumber,
+// Picks what a lineup plays: shows, and movies by genre / decade /
+// collection. Used for the main lineup, each time block, and filler.
+function SourcePicker({
+  sources,
+  onChange,
   shows,
-  movies,
-  onClose,
-  onSaved
+  movies
 }: {
-  channel: Channel | null
-  nextNumber: number
+  sources: ChannelSource[]
+  onChange: (sources: ChannelSource[]) => void
   shows: Show[]
   movies: Movie[]
-  onClose: () => void
-  onSaved: () => void
 }): JSX.Element {
-  const { activeProfile } = useProfile()
-  const [name, setName] = useState(channel?.name ?? '')
-  const [number, setNumber] = useState(String(channel?.number ?? nextNumber))
-  const [sources, setSources] = useState<ChannelSource[]>(channel?.sources ?? [])
-  const [order, setOrder] = useState<ChannelConfig['order']>(channel?.order ?? 'shuffle')
-  const [maxQuality, setMaxQuality] = useState<ChannelConfig['maxQuality']>(
-    channel?.maxQuality ?? '1080'
-  )
   const [showQuery, setShowQuery] = useState('')
   const [genre, setGenre] = useState('')
   const [decade, setDecade] = useState('')
   const [collection, setCollection] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const genres = useMemo(
     () => [...new Set(movies.flatMap((m) => m.genres))].sort((a, b) => a.localeCompare(b)),
@@ -78,8 +69,9 @@ function ChannelEditor({
   )
   const collections = useMemo(() => {
     const byId = new Map<number, string>()
-    for (const m of movies)
+    for (const m of movies) {
       if (m.collectionId && m.collectionName) byId.set(m.collectionId, m.collectionName)
+    }
     return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]))
   }, [movies])
 
@@ -89,7 +81,7 @@ function ChannelEditor({
     .slice(0, 40)
 
   const toggleShow = (showId: number): void => {
-    setSources(
+    onChange(
       pickedShows.has(showId)
         ? sources.filter((s) => !(s.kind === 'show' && s.showId === showId))
         : [...sources, { kind: 'show', showId }]
@@ -97,7 +89,7 @@ function ChannelEditor({
   }
 
   const addMovies = (): void => {
-    setSources([
+    onChange([
       ...sources,
       {
         kind: 'movies',
@@ -111,9 +103,128 @@ function ChannelEditor({
     setCollection('')
   }
 
+  return (
+    <>
+      {sources.length === 0 ? (
+        <p className="dash-dim">Nothing yet — add shows or movies below.</p>
+      ) : (
+        <div className="live-sources">
+          {sources.map((source, i) => (
+            <span key={i} className="live-source-chip">
+              {sourceLabel(source, shows, movies)}
+              <button
+                onClick={() => onChange(sources.filter((_, j) => j !== i))}
+                aria-label="Remove"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="live-editor-pickers">
+        <div className="live-editor-shows">
+          <input
+            type="search"
+            placeholder="Find a show…"
+            value={showQuery}
+            onChange={(e) => setShowQuery(e.target.value)}
+          />
+          <div className="live-show-list">
+            {matchingShows.map((show) => (
+              <label key={show.id} className="req-season">
+                <input
+                  type="checkbox"
+                  checked={pickedShows.has(show.id)}
+                  onChange={() => toggleShow(show.id)}
+                />
+                {show.title}
+                {show.year && <span className="dash-dim"> ({show.year})</span>}
+              </label>
+            ))}
+            {shows.length === 0 && <span className="dash-dim">No shows in the library.</span>}
+          </div>
+        </div>
+        <div className="live-editor-movies">
+          <span className="dash-dim">Movies</span>
+          <select value={genre} onChange={(e) => setGenre(e.target.value)}>
+            <option value="">Any genre</option>
+            {genres.map((g) => (
+              <option key={g}>{g}</option>
+            ))}
+          </select>
+          <select value={decade} onChange={(e) => setDecade(e.target.value)}>
+            <option value="">Any decade</option>
+            {decades.map((d) => (
+              <option key={d} value={d}>
+                {d}s
+              </option>
+            ))}
+          </select>
+          <select value={collection} onChange={(e) => setCollection(e.target.value)}>
+            <option value="">Any collection</option>
+            {collections.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn-secondary dash-small-btn"
+            onClick={addMovies}
+            disabled={movies.length === 0}
+          >
+            Add movies
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function ChannelEditor({
+  channel,
+  nextNumber,
+  shows,
+  movies,
+  port,
+  onClose,
+  onSaved
+}: {
+  channel: Channel | null
+  nextNumber: number
+  shows: Show[]
+  movies: Movie[]
+  port: number
+  onClose: () => void
+  onSaved: () => void
+}): JSX.Element {
+  const { activeProfile } = useProfile()
+  const [tab, setTab] = useState<'lineup' | 'blocks' | 'filler'>('lineup')
+  const [name, setName] = useState(channel?.name ?? '')
+  const [number, setNumber] = useState(String(channel?.number ?? nextNumber))
+  const [sources, setSources] = useState<ChannelSource[]>(channel?.sources ?? [])
+  const [order, setOrder] = useState<ChannelConfig['order']>(channel?.order ?? 'shuffle')
+  const [maxQuality, setMaxQuality] = useState<ChannelConfig['maxQuality']>(
+    channel?.maxQuality ?? '1080'
+  )
+  const [blocks, setBlocks] = useState<ChannelBlock[]>(channel?.blocks ?? [])
+  const [filler, setFiller] = useState<ChannelSource[]>(channel?.filler ?? [])
+  const [logoPath, setLogoPath] = useState<string | null>(channel?.logoPath ?? null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const updateBlock = (i: number, patch: Partial<ChannelBlock>): void => {
+    setBlocks(blocks.map((b, j) => (j === i ? { ...b, ...patch } : b)))
+  }
+
   const save = async (): Promise<void> => {
     if (!name.trim() || sources.length === 0) {
       setError('Give it a name and at least one show or set of movies.')
+      return
+    }
+    if (blocks.some((b) => b.sources.length === 0)) {
+      setError('Each time block needs something to play (or remove it).')
       return
     }
     setSaving(true)
@@ -124,7 +235,10 @@ function ChannelEditor({
         number: Number(number) || nextNumber,
         sources,
         order,
-        maxQuality
+        maxQuality,
+        blocks,
+        filler,
+        logoPath
       })
       onSaved()
     } catch (err) {
@@ -142,6 +256,18 @@ function ChannelEditor({
         </button>
         <h2>{channel ? 'Edit channel' : 'New channel'}</h2>
         <div className="live-editor-row">
+          <button
+            className="live-logo-pick"
+            onClick={() =>
+              window.api.channels
+                .pickLogo(activeProfile.id)
+                .then((path) => path && setLogoPath(path))
+                .catch(() => {})
+            }
+            title="Choose a logo"
+          >
+            {logoPath ? <img src={imageUrl(logoPath, port)} alt="" /> : <span>Logo</span>}
+          </button>
           <label>
             Name
             <input
@@ -160,110 +286,136 @@ function ChannelEditor({
             />
           </label>
         </div>
-
-        <h3>What it plays</h3>
-        {sources.length === 0 ? (
-          <p className="dash-dim">Nothing yet — add shows or movies below.</p>
-        ) : (
-          <div className="live-sources">
-            {sources.map((source, i) => (
-              <span key={i} className="live-source-chip">
-                {sourceLabel(source, shows, movies)}
-                <button
-                  onClick={() => setSources(sources.filter((_, j) => j !== i))}
-                  aria-label="Remove"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
+        {logoPath && (
+          <button className="dash-stop" onClick={() => setLogoPath(null)}>
+            Remove logo
+          </button>
         )}
 
-        <div className="live-editor-pickers">
-          <div className="live-editor-shows">
-            <input
-              type="search"
-              placeholder="Find a show…"
-              value={showQuery}
-              onChange={(e) => setShowQuery(e.target.value)}
-            />
-            <div className="live-show-list">
-              {matchingShows.map((show) => (
-                <label key={show.id} className="req-season">
-                  <input
-                    type="checkbox"
-                    checked={pickedShows.has(show.id)}
-                    onChange={() => toggleShow(show.id)}
-                  />
-                  {show.title}
-                  {show.year && <span className="dash-dim"> ({show.year})</span>}
-                </label>
-              ))}
-              {shows.length === 0 && <span className="dash-dim">No shows in the library.</span>}
-            </div>
-          </div>
-          <div className="live-editor-movies">
-            <span className="dash-dim">Movies</span>
-            <select value={genre} onChange={(e) => setGenre(e.target.value)}>
-              <option value="">Any genre</option>
-              {genres.map((g) => (
-                <option key={g}>{g}</option>
-              ))}
-            </select>
-            <select value={decade} onChange={(e) => setDecade(e.target.value)}>
-              <option value="">Any decade</option>
-              {decades.map((d) => (
-                <option key={d} value={d}>
-                  {d}s
-                </option>
-              ))}
-            </select>
-            <select value={collection} onChange={(e) => setCollection(e.target.value)}>
-              <option value="">Any collection</option>
-              {collections.map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
+        <div className="dash-tabs">
+          {(
+            [
+              ['lineup', 'Lineup'],
+              ['blocks', `Time blocks${blocks.length ? ` (${blocks.length})` : ''}`],
+              ['filler', `Filler${filler.length ? ` (${filler.length})` : ''}`]
+            ] as const
+          ).map(([key, label]) => (
             <button
-              className="btn-secondary dash-small-btn"
-              onClick={addMovies}
-              disabled={movies.length === 0}
+              key={key}
+              className={tab === key ? 'dash-tab active' : 'dash-tab'}
+              onClick={() => setTab(key)}
             >
-              Add movies
+              {label}
             </button>
-          </div>
+          ))}
         </div>
 
-        <div className="live-editor-row">
-          <label>
-            Order
-            <select
-              value={order}
-              onChange={(e) => setOrder(e.target.value as ChannelConfig['order'])}
+        {tab === 'lineup' && (
+          <>
+            <p className="settings-hint">What it plays the rest of the time.</p>
+            <SourcePicker sources={sources} onChange={setSources} shows={shows} movies={movies} />
+            <div className="live-editor-row">
+              <label>
+                Order
+                <select
+                  value={order}
+                  onChange={(e) => setOrder(e.target.value as ChannelConfig['order'])}
+                >
+                  <option value="shuffle">Shuffle</option>
+                  <option value="inOrder">In order</option>
+                </select>
+              </label>
+              <label>
+                Highest quality
+                <select
+                  value={maxQuality}
+                  onChange={(e) => setMaxQuality(e.target.value as ChannelConfig['maxQuality'])}
+                >
+                  <option value="auto">Same as the viewer’s setting</option>
+                  <option value="1080">1080p</option>
+                  <option value="720">720p</option>
+                  <option value="480">480p</option>
+                </select>
+              </label>
+            </div>
+            <p className="settings-hint">
+              A capped channel never streams above that, even if it’s left on all day.
+            </p>
+          </>
+        )}
+
+        {tab === 'blocks' && (
+          <>
+            <p className="settings-hint">
+              Something else at set times each day (the server PC’s time). At the start and end of
+              a block it cuts over, like real TV.
+            </p>
+            {blocks.map((block, i) => (
+              <div key={i} className="live-block">
+                <div className="live-editor-row">
+                  <label>
+                    From
+                    <input
+                      type="time"
+                      value={block.start}
+                      onChange={(e) => updateBlock(i, { start: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Until
+                    <input
+                      type="time"
+                      value={block.end}
+                      onChange={(e) => updateBlock(i, { end: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Order
+                    <select
+                      value={block.order}
+                      onChange={(e) =>
+                        updateBlock(i, { order: e.target.value as ChannelBlock['order'] })
+                      }
+                    >
+                      <option value="shuffle">Shuffle</option>
+                      <option value="inOrder">In order</option>
+                    </select>
+                  </label>
+                  <button
+                    className="dash-stop"
+                    onClick={() => setBlocks(blocks.filter((_, j) => j !== i))}
+                  >
+                    Remove block
+                  </button>
+                </div>
+                <SourcePicker
+                  sources={block.sources}
+                  onChange={(next) => updateBlock(i, { sources: next })}
+                  shows={shows}
+                  movies={movies}
+                />
+              </div>
+            ))}
+            <button
+              className="btn-secondary dash-small-btn live-add-block"
+              onClick={() =>
+                setBlocks([...blocks, { start: '07:00', end: '11:00', sources: [], order: 'shuffle' }])
+              }
             >
-              <option value="shuffle">Shuffle</option>
-              <option value="inOrder">In order</option>
-            </select>
-          </label>
-          <label>
-            Highest quality
-            <select
-              value={maxQuality}
-              onChange={(e) => setMaxQuality(e.target.value as ChannelConfig['maxQuality'])}
-            >
-              <option value="auto">Same as the viewer’s setting</option>
-              <option value="1080">1080p</option>
-              <option value="720">720p</option>
-              <option value="480">480p</option>
-            </select>
-          </label>
-        </div>
-        <p className="settings-hint">
-          A capped channel never streams above that, even if it’s left on all day.
-        </p>
+              Add a time block
+            </button>
+          </>
+        )}
+
+        {tab === 'filler' && (
+          <>
+            <p className="settings-hint">
+              Played between programs — short things you have as files, like bumpers, trailers or
+              music videos. Leave empty for programs back to back.
+            </p>
+            <SourcePicker sources={filler} onChange={setFiller} shows={shows} movies={movies} />
+          </>
+        )}
 
         {error && <p className="req-error">{error}</p>}
         <div className="live-editor-actions">
@@ -279,6 +431,7 @@ function ChannelEditor({
 export default function Live(): JSX.Element {
   const { activeProfile, isHost } = useProfile()
   const navigate = useNavigate()
+  const port = usePort()
   const [guide, setGuide] = useState<ChannelGuide | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -366,6 +519,10 @@ export default function Live(): JSX.Element {
                       {c.sources.map((s) => sourceLabel(s, shows, movies)).join(', ')} ·{' '}
                       {c.itemCount} items · {c.order === 'shuffle' ? 'shuffled' : 'in order'}
                       {c.maxQuality !== 'auto' ? ` · up to ${c.maxQuality}p` : ''}
+                      {c.blocks?.length
+                        ? ` · ${c.blocks.length} time block${c.blocks.length === 1 ? '' : 's'}`
+                        : ''}
+                      {c.filler?.length ? ' · filler' : ''}
                     </div>
                   </div>
                   <div className="dash-request-actions">
@@ -421,7 +578,11 @@ export default function Live(): JSX.Element {
                   className="live-guide-channel"
                   onClick={() => navigate(`/live/${channel.id}`)}
                 >
-                  <span className="live-number">{channel.number}</span>
+                  {channel.logoPath ? (
+                    <img className="live-logo" src={imageUrl(channel.logoPath, port)} alt="" />
+                  ) : (
+                    <span className="live-number">{channel.number}</span>
+                  )}
                   <span>{channel.name}</span>
                 </button>
                 <div className="live-guide-programs">
@@ -462,6 +623,7 @@ export default function Live(): JSX.Element {
 
       {editing && (
         <ChannelEditor
+          port={port}
           channel={editing === 'new' ? null : editing}
           nextNumber={Math.max(0, ...channels.map((c) => c.number)) + 1}
           shows={shows}

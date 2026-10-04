@@ -167,7 +167,9 @@ const api = {
     save: (requestingProfileId: number, id: number | null, config: ChannelConfig) =>
       invoke<Channel>('channels:save', requestingProfileId, id, config),
     remove: (requestingProfileId: number, id: number) =>
-      invoke<void>('channels:delete', requestingProfileId, id)
+      invoke<void>('channels:delete', requestingProfileId, id),
+    pickLogo: (requestingProfileId: number) =>
+      invoke<string | null>('channels:pickLogo', requestingProfileId)
   },
   requests: {
     discover: () => invoke<RequestDiscover>('requests:discover'),

@@ -2675,3 +2675,59 @@ button {
   color: var(--text);
   padding: 0.4rem 0.5rem;
 }
+
+.live-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* A channel's logo stays in the corner, like a TV station's bug. */
+.live-player-logo {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  max-width: 96px;
+  max-height: 56px;
+  object-fit: contain;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.live-logo-pick {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  align-self: flex-end;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.live-logo-pick img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.live-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.live-block .live-sources {
+  margin-top: 12px;
+}
+
+.live-add-block {
+  align-self: flex-start;
+}

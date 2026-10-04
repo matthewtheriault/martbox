@@ -76,3 +76,98 @@ export function shuffled<T>(list: T[], seed: number): T[] {
   }
   return out
 }
+
+// --- Time blocks: a channel can play something else at set times of day
+// ("cartoons 7–11 am"). Each block, and the channel's normal lineup, is its
+// own loop from the same epoch; whichever is active at a moment decides
+// what's on, cutting over at block boundaries like real TV.
+
+export interface TimeBlock {
+  // Minutes after local midnight; end ≤ start means it runs past midnight.
+  startMinute: number
+  endMinute: number
+  items: ScheduleItem[]
+}
+
+export interface ScheduleWindow {
+  // -1: the channel's normal lineup.
+  block: number
+  start: number
+  end: number
+}
+
+const MINUTE_MS = 60_000
+
+function localMidnight(t: number, dayOffset: number): number {
+  const d = new Date(t)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + dayOffset)
+  return d.getTime()
+}
+
+// Every block window overlapping [from, to), in order.
+function blockWindows(blocks: TimeBlock[], from: number, to: number): ScheduleWindow[] {
+  const windows: ScheduleWindow[] = []
+  for (let day = -1; ; day++) {
+    const midnight = localMidnight(from, day)
+    if (midnight > to) break
+    blocks.forEach((b, block) => {
+      const start = midnight + b.startMinute * MINUTE_MS
+      const endMinute = b.endMinute <= b.startMinute ? b.endMinute + 24 * 60 : b.endMinute
+      const end = midnight + endMinute * MINUTE_MS
+      if (end > from && start < to) windows.push({ block, start, end })
+    })
+  }
+  return windows.sort((a, b) => a.start - b.start)
+}
+
+// The run of time containing t: a block's window, or the gap between
+// blocks where the normal lineup plays.
+export function windowAt(blocks: TimeBlock[], t: number): ScheduleWindow {
+  if (blocks.length === 0) return { block: -1, start: -Infinity, end: Infinity }
+  const day = 24 * 60 * MINUTE_MS
+  const windows = blockWindows(blocks, t - 2 * day, t + 2 * day)
+  const inside = windows.find((w) => w.start <= t && t < w.end)
+  if (inside) return inside
+  const before = windows.filter((w) => w.end <= t).pop()
+  const after = windows.find((w) => w.start > t)
+  return { block: -1, start: before?.end ?? -Infinity, end: after?.start ?? Infinity }
+}
+
+export interface WindowedSlot extends ScheduledSlot {
+  block: number
+  // When the item itself began (start may be cut to the window).
+  itemStart: number
+}
+
+// What's on between from and to across blocks: each program cut to the
+// window it plays in.
+export function programsBetween(
+  items: ScheduleItem[],
+  blocks: TimeBlock[],
+  epoch: number,
+  from: number,
+  to: number,
+  limit = 300
+): WindowedSlot[] {
+  const out: WindowedSlot[] = []
+  let at = from
+  while (at < to && out.length < limit) {
+    const window = windowAt(blocks, at)
+    const list = window.block === -1 ? items : blocks[window.block].items
+    const until = Math.min(window.end, to)
+    for (const slot of slotsBetween(list, epoch, at, until, limit)) {
+      out.push({
+        index: slot.index,
+        block: window.block,
+        itemStart: slot.start,
+        start: Math.max(slot.start, window.start),
+        end: Math.min(slot.end, window.end)
+      })
+      if (out.length >= limit) break
+    }
+    if (window.end === Infinity) break
+    at = window.end
+  }
+  return out
+}

@@ -494,9 +494,11 @@ function conversionFor(
   conversions: ConversionRecord[],
   stream: Stream
 ): DashboardStream['conversion'] {
-  const match = conversions.find(
-    (c) => c.owner === stream.owner.key && c.mediaKey === `${stream.mediaType}:${stream.mediaId}`
-  )
+  const mediaKey = `${stream.mediaType}:${stream.mediaId}`
+  // A Live Channel's conversion is shared by everyone watching it.
+  const match =
+    conversions.find((c) => c.owner === stream.owner.key && c.mediaKey === mediaKey) ??
+    (stream.channel ? conversions.find((c) => c.owner === 'shared' && c.mediaKey === mediaKey) : undefined)
   if (!match) return null
   const { kind, height, running, speed, fps } = match
   return { kind, height, running, speed, fps }
