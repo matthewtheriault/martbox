@@ -40,3 +40,19 @@ export function formatTime(seconds: number): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
+
+// What this player (Chromium) decodes, for /api/playback — asked of the
+// browser itself, since HEVC support depends on the OS and GPU.
+export function desktopPlaybackQuery(): string {
+  const video = document.createElement('video')
+  const hevc = video.canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"') !== ''
+  const hevc10 = video.canPlayType('video/mp4; codecs="hvc1.2.4.L120.90"') !== ''
+  const params = new URLSearchParams({
+    client: 'desktop',
+    video: hevc ? 'h264,hevc' : 'h264',
+    hevc10: hevc10 ? '1' : '0',
+    maxHeight: '2160',
+    audio: 'aac,mp3'
+  })
+  return params.toString()
+}
