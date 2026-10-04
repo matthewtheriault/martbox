@@ -244,7 +244,8 @@ everything after it are built in the new style from the start.
 - Accent choice: Settings → Appearance, saved per profile on the server
   so it follows the person. Fire TV ships with it; desktop, iPhone and
   Apple TV get it when they move to the new style.
-- Open: the app icon is still the purple cube.
+- App icon: a neutral grey cube on black (`design/icon/make_icons.py`
+  draws every size), so it suits any accent.
 
 **Phase 3 — Fire TV + Android.** Done when a friend on a Fire TV stick, then
 on an Android phone, signs in with a code and streams remotely. Fire TV
