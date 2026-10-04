@@ -42,7 +42,7 @@ import {
   titleDetails
 } from './requests'
 import { discoverForRequests, requestTitleInfo, searchForRequests } from './tmdb'
-import { channelGuide, channelNow, rebuildAllChannels } from './channels'
+import { channelGuide, channelNow, listChannels, rebuildAllChannels } from './channels'
 import { randomBytes } from 'crypto'
 import { app, Notification } from 'electron'
 import { API_VERSION, type ServerVersionInfo } from '../shared/remoteAccess'
@@ -201,11 +201,20 @@ onStreamStopped((ownerKey, mediaType, mediaId) => {
 
 // Playback on this PC (the host app's own player) — its progress saves go
 // straight to the database, not through HTTP.
+// "5 · Movie Night" for a channel id, for the dashboard.
+function channelLabel(channelId: number): string | null {
+  if (!Number.isInteger(channelId) || channelId <= 0) return null
+  const channel = listChannels().find((c) => c.id === channelId)
+  return channel ? `${channel.number} · ${channel.name}` : null
+}
+
 export function noteLocalPlayback(
   profileId: number,
   mediaType: MediaType,
   mediaId: number,
-  positionSeconds: number
+  positionSeconds: number,
+  state: StreamState | null = null,
+  channelId: number | null = null
 ): void {
   const profile = listProfiles().find((p) => p.id === profileId)
   noteHeartbeat(
@@ -219,8 +228,9 @@ export function noteLocalPlayback(
     mediaType,
     mediaId,
     positionSeconds,
+    state,
     null,
-    null
+    channelId ? channelLabel(channelId) : null
   )
 }
 
@@ -1502,7 +1512,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // Players report every ~10 s while open, playing or not, for the
   // dashboard. The reply tells the player if the admin stopped it.
   app.post('/api/playback/heartbeat', express.json({ limit: '4kb' }), (req, res) => {
-    const { mediaType, mediaId, positionSeconds, state, stalls } = req.body ?? {}
+    const { mediaType, mediaId, positionSeconds, state, stalls, channelId } = req.body ?? {}
     const id = Number(mediaId)
     if (!isMediaType(mediaType) || !Number.isInteger(id)) {
       res.status(400).json({ error: 'mediaType and mediaId are required' })
@@ -1520,7 +1530,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       id,
       Number(positionSeconds),
       states.find((s) => s === state) ?? null,
-      Number.isFinite(Number(stalls)) ? Number(stalls) : null
+      Number.isFinite(Number(stalls)) ? Number(stalls) : null,
+      channelLabel(Number(channelId))
     )
     res.json({ stop: false })
   })

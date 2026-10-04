@@ -201,6 +201,23 @@ const api = {
       invoke<void>('requests:delete', requestingProfileId, id)
   },
   dashboard: {
+    heartbeat: (
+      profileId: number,
+      mediaType: MediaType,
+      mediaId: number,
+      positionSeconds: number,
+      state: 'playing' | 'paused' | 'buffering',
+      channelId: number | null
+    ) =>
+      invoke<void>(
+        'dashboard:heartbeat',
+        profileId,
+        mediaType,
+        mediaId,
+        positionSeconds,
+        state,
+        channelId
+      ),
     snapshot: (requestingProfileId: number) =>
       invoke<DashboardSnapshot | null>('dashboard:snapshot', requestingProfileId),
     stopStream: (requestingProfileId: number, key: string, message: string) =>

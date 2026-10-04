@@ -326,6 +326,8 @@ export interface DashboardStream {
   // Times playback stalled to buffer in the last 5 minutes.
   recentStalls: number
   startedAt: number
+  // Watched through a Live Channel: e.g. "5 · Movie Night".
+  channel: string | null
   // The server's conversion for it (repackaging or converting), if any.
   conversion: {
     kind: 'transcode' | 'remux'

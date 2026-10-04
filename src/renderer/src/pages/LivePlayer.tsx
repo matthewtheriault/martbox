@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Channel, ChannelNow } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { useProfile } from '../lib/ProfileContext'
 import { streamUrl } from '../lib/media'
 
 // Watching a Live Channel: joins whatever is on right now, at the right
@@ -30,6 +31,7 @@ export default function LivePlayer(): JSX.Element {
   const [channels, setChannels] = useState<Channel[]>([])
   const [askStillWatching, setAskStillWatching] = useState(false)
   const lastInput = useRef(Date.now())
+  const { activeProfile } = useProfile()
   const channelId = Number(id)
 
   // Tune in: what's on now, from the right point.
@@ -123,6 +125,31 @@ export default function LivePlayer(): JSX.Element {
       clearInterval(timer)
     }
   }, [zap, navigate])
+
+  // Tells the server's dashboard what's on and that it's a channel.
+  useEffect(() => {
+    if (!now) return
+    const beat = (): void => {
+      const video = videoRef.current
+      if (!video) return
+      const position =
+        directOffset !== null ? video.currentTime : now.offsetSeconds + video.currentTime
+      const state = video.paused ? 'paused' : video.readyState < 3 ? 'buffering' : 'playing'
+      window.api.dashboard
+        .heartbeat(
+          activeProfile.id,
+          now.program.mediaType,
+          now.program.mediaId,
+          position,
+          state,
+          now.channel.id
+        )
+        .catch(() => {})
+    }
+    beat()
+    const timer = setInterval(beat, 10_000)
+    return () => clearInterval(timer)
+  }, [now, directOffset, activeProfile.id])
 
   // Hide the banner after a few seconds; mouse movement brings it back.
   const [, setTick] = useState(0)
