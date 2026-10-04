@@ -326,6 +326,28 @@ export interface DashboardStream {
   // Times playback stalled to buffer in the last 5 minutes.
   recentStalls: number
   startedAt: number
+  // The server's conversion for it (repackaging or converting), if any.
+  conversion: {
+    kind: 'transcode' | 'remux'
+    height: number | null
+    // Paused (far enough ahead of the viewer) or finished when false.
+    running: boolean
+    // × realtime; below 1 the viewer will buffer.
+    speed: number | null
+    fps: number | null
+  } | null
+}
+
+export interface DashboardHardware {
+  cpuModel: string
+  cpuPercent: number
+  memoryUsedBytes: number
+  memoryTotalBytes: number
+  // e.g. "AMD AMF (h264_amf)" / "CPU (libx264)".
+  encoder: string
+  decoder: string
+  conversionsRunning: number
+  disks: { label: string; path: string; freeBytes: number; totalBytes: number }[]
 }
 
 export interface DashboardDevice {
@@ -355,6 +377,7 @@ export interface DashboardSnapshot {
     uploadCapacityMbps: number | null
     devices: DashboardDevice[]
   }
+  hardware: DashboardHardware
 }
 
 // --- Requests (friends ask for movies/shows; the admin handles them) ---

@@ -12,8 +12,10 @@ import {
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
+import { cpuMemory, diskSpace } from './systemStats'
 import {
   clearStaleHlsFolders,
+  hlsConversions,
   registerHlsRoutes,
   stopAllHlsSessions,
   stopHlsSessionsFor
@@ -49,6 +51,7 @@ import type { Server } from 'http'
 import {
   getEpisode,
   getMovie,
+  listLibraries,
   listProfiles,
   createProfile,
   renameProfile,
@@ -233,11 +236,47 @@ export function dashboardSnapshot(): DashboardSnapshot {
     lastSeenAt: d.lastSeenAt
   }))
   const capacity = parseFloat(getSetting('uploadCapacityMbps') ?? '')
+  const conversions = hlsConversions()
+  const disks = diskSpace([
+    ...listLibraries().map((l) => ({ label: l.name, path: l.path })),
+    { label: 'Conversion cache', path: hlsCacheDir() }
+  ])
   return snapshot(
     devices,
     getLastRemoteAccessStatus().peers ?? null,
-    Number.isFinite(capacity) && capacity > 0 ? capacity : null
+    Number.isFinite(capacity) && capacity > 0 ? capacity : null,
+    conversions,
+    {
+      ...cpuMemory(),
+      encoder: encoderLabel,
+      decoder: hardwareDecodeDisabled ? 'CPU (GPU decoding failed earlier)' : decoderLabel,
+      conversionsRunning: conversions.filter((c) => c.running).length,
+      disks
+    }
   )
+}
+
+// Filled in once detection finishes, for the dashboard.
+let encoderLabel = 'Checking…'
+let decoderLabel = 'Checking…'
+const ENCODER_NAMES: Record<string, string> = {
+  h264_amf: 'AMD GPU (AMF)',
+  h264_nvenc: 'NVIDIA GPU (NVENC)',
+  h264_qsv: 'Intel GPU (Quick Sync)'
+}
+
+function labelCodecs(): void {
+  void detectHardwareEncoder().then((encoder) => {
+    encoderLabel = encoder ? ENCODER_NAMES[encoder] : 'CPU (x264)'
+  })
+  void detectHardwareDecoder().then((decoder) => {
+    decoderLabel =
+      decoder === 'd3d11va'
+        ? 'GPU (D3D11VA)'
+        : decoder === 'videotoolbox'
+          ? 'GPU (VideoToolbox)'
+          : 'CPU'
+  })
 }
 
 export function stopDashboardStream(key: string, message: string): boolean {
@@ -494,6 +533,63 @@ function detectHardwareEncoder(): Promise<HardwareEncoder | null> {
   return hardwareEncoderPromise
 }
 
+// Hardware *decoding* of the source (D3D11VA on Windows — the Vega 56 —,
+// VideoToolbox on macOS): a 4K HEVC film decoded on the CPU takes most of
+// it, leaving little for tone mapping and encoding. Only used when the
+// bundled ffmpeg lists it; frames come back to system memory, so the
+// filters (scale, tone mapping) work unchanged. If a conversion fails
+// before producing anything with it on, it's switched off until MartBox
+// restarts and the conversion is retried on the CPU (hls.ts) — a driver or
+// file the GPU can't handle never stops playback.
+type HardwareDecoder = 'd3d11va' | 'videotoolbox'
+
+let hardwareDecoderPromise: Promise<HardwareDecoder | null> | null = null
+let hardwareDecodeDisabled = false
+
+function detectHardwareDecoder(): Promise<HardwareDecoder | null> {
+  if (!hardwareDecoderPromise) {
+    hardwareDecoderPromise = new Promise((resolveDecoder) => {
+      const candidate: HardwareDecoder | null =
+        process.platform === 'win32'
+          ? 'd3d11va'
+          : process.platform === 'darwin'
+            ? 'videotoolbox'
+            : null
+      if (!candidate) {
+        resolveDecoder(null)
+        return
+      }
+      let out = ''
+      const proc = spawn(ffmpegPath, ['-hide_banner', '-hwaccels'])
+      proc.stdout?.on('data', (chunk: Buffer) => (out += chunk.toString()))
+      proc.on('error', () => resolveDecoder(null))
+      proc.on('exit', () => {
+        const available = out.split(/\s+/).includes(candidate)
+        logTranscode(
+          available
+            ? `Hardware decoding available: ${candidate}`
+            : 'No hardware decoding — sources are decoded on the CPU.'
+        )
+        resolveDecoder(available ? candidate : null)
+      })
+    })
+  }
+  return hardwareDecoderPromise
+}
+
+// Input options for re-encoding a file (before -i).
+async function hwDecodeArgs(): Promise<string[]> {
+  if (hardwareDecodeDisabled) return []
+  const decoder = await detectHardwareDecoder()
+  return decoder ? ['-hwaccel', decoder] : []
+}
+
+function disableHardwareDecode(): void {
+  if (hardwareDecodeDisabled) return
+  hardwareDecodeDisabled = true
+  logTranscode('Hardware decoding failed for a conversion — using the CPU until MartBox restarts.')
+}
+
 // Bitrate caps for HLS transcodes, per size (playback.ts's ladder) — e.g.
 // 1080p at ~8 Mbps average and 10 Mbps peak, which fits a remote friend's
 // connection while looking good on a TV.
@@ -612,9 +708,11 @@ async function streamTranscode(
       ]
     : []
 
+  const decodeArgs = videoCodec === 'h264' ? [] : await hwDecodeArgs()
   const args = [
     '-ss',
     String(startSeconds),
+    ...decodeArgs,
     '-i',
     filePath,
     '-map',
@@ -1207,6 +1305,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     probe: probeFile,
     keyframes: fileKeyframes,
     videoArgs: hlsVideoArgs,
+    decodeArgs: hwDecodeArgs,
+    onDecodeFailure: disableHardwareDecode,
     ownerOf: ownerKeyOf,
     onMediaRequest: (req, res, mediaKey) => {
       const [mediaType, id] = mediaKey.split(':')
@@ -1294,7 +1394,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
         ? `/stream/${mediaType}/${id}?direct=1`
         : decision.method === 'remux'
           ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio}`
-          : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}`
+          : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}&audio=${decision.audio}`
     logTranscode(
       `PLAYBACK ${mediaType}/${id} method=${decision.method} bandwidthKbps=${bandwidthKbps ?? 'unknown'} quality=${quality} avoid=${avoid.join(',') || 'none'} — ${decision.reason}`
     )
@@ -1419,6 +1519,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // the probe's latency (it awaits the same cached promise, already
   // resolved by the time anyone's actually pressed play).
   void detectHardwareEncoder()
+  void detectHardwareDecoder()
+  labelCodecs()
   // Channels pick up anything added while MartBox was closed.
   void rebuildAllChannels()
 

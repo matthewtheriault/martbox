@@ -81,12 +81,14 @@ function silentAudioInput(seconds: number): string[] {
 }
 
 export type HlsVariant =
-  | { kind: 'transcode'; rung: TranscodeRung }
+  // audio: keep the original track ('copy') or convert it. Apps from
+  // before this send neither, and get the old stereo AAC.
+  | { kind: 'transcode'; rung: TranscodeRung; audio: 'copy' | 'convert' | 'stereo' }
   | { kind: 'remux'; audio: 'copy' | 'convert' }
 
 export function variantKey(variant: HlsVariant): string {
   return variant.kind === 'transcode'
-    ? `transcode:${variant.rung.height}:${variant.rung.kbps}`
+    ? `transcode:${variant.rung.height}:${variant.rung.kbps}:${variant.audio}`
     : `remux:${variant.audio}`
 }
 
@@ -98,7 +100,8 @@ export function variantFromQuery(query: Record<string, unknown>): HlsVariant {
   }
   const height = parseInt(String(query.h ?? ''), 10)
   const rung = TRANSCODE_LADDER.find((r) => r.height === height) ?? TRANSCODE_LADDER[0]
-  return { kind: 'transcode', rung }
+  const audio = query.audio === 'copy' ? 'copy' : query.audio === 'convert' ? 'convert' : 'stereo'
+  return { kind: 'transcode', rung, audio }
 }
 
 export interface HlsDeps {
@@ -110,6 +113,10 @@ export interface HlsDeps {
   // ffmpeg video encoder arguments (hardware when available) for a size
   // and bitrate; HDR sources are tone-mapped to SDR.
   videoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<string[]>
+  // Input options for decoding the source on the GPU ([] when there's none).
+  decodeArgs(): Promise<string[]>
+  // A conversion using decodeArgs failed before producing anything.
+  onDecodeFailure(): void
   // Who's asking — a device id, or 'local' / 'legacy'. Sessions are only
   // served back to their owner.
   ownerOf(res: express.Response): string
@@ -128,6 +135,13 @@ interface Run {
   playlist: string
   exited: boolean
   watcher: NodeJS.Timeout | null
+}
+
+// How a session's conversion is keeping up (ffmpeg's -progress output), for
+// the dashboard: below 1× realtime the viewer will buffer.
+interface ConversionStats {
+  speed: number | null
+  fps: number | null
 }
 
 interface RemuxState {
@@ -160,6 +174,7 @@ interface Session {
   completed: Set<number>
   remux: RemuxState | null
   lastAccess: number
+  stats: ConversionStats
 }
 
 const sessions = new Map<string, Session>()
@@ -308,23 +323,49 @@ function refreshCompleted(session: Session): void {
   }
 }
 
+// Audio codecs an Apple player takes inside the MPEG-TS segments a
+// transcode writes; anything else (DTS, TrueHD, FLAC…) is converted.
+const TS_AUDIO_CODECS = new Set(['aac', 'ac3', 'eac3', 'mp3'])
+
+function transcodeAudioArgs(
+  audio: 'copy' | 'convert' | 'stereo',
+  probe: MediaProbe
+): string[] {
+  if (audio === 'copy' && probe.audioCodec && TS_AUDIO_CODECS.has(probe.audioCodec)) {
+    // The original track, untouched — same quality, surround included, and
+    // it stays in sync through its own timestamps like the video.
+    return ['-c:a', 'copy']
+  }
+  const channels = probe.audioChannels ?? 2
+  if (audio !== 'stereo' && channels > 2) {
+    // Surround stays surround: E-AC-3 plays on every Apple device and
+    // passes through to a soundbar or receiver.
+    return ['-c:a', 'eac3', '-b:a', '640k', '-ac', String(Math.min(channels, 6))]
+  }
+  return ['-c:a', 'aac', '-ac', '2', '-b:a', '192k']
+}
+
 async function startTranscodeRun(
   deps: HlsDeps,
   session: Session,
   startSegment: number,
-  rung: TranscodeRung
+  rung: TranscodeRung,
+  allowHardwareDecode = true
 ): Promise<void> {
   killRun(session)
   const startSeconds = session.starts[startSegment]
   const playlist = `run-${startSegment}-${Date.now()}.m3u8`
   const probe = await deps.probe(session.filePath)
   const silent = probe.audioCodec === null
+  const decodeArgs = allowHardwareDecode ? await deps.decodeArgs() : []
+  const variant = session.variant as Extract<HlsVariant, { kind: 'transcode' }>
   const args = [
     '-hide_banner',
     '-loglevel',
     'error',
     '-ss',
     String(startSeconds),
+    ...decodeArgs,
     '-i',
     session.filePath,
     ...(silent ? silentAudioInput(session.durationSeconds - startSeconds) : []),
@@ -339,17 +380,18 @@ async function startTranscodeRun(
     // same absolute times.
     '-force_key_frames',
     `expr:gte(t,n_forced*${SEGMENT_SECONDS})`,
-    '-c:a',
-    'aac',
-    '-ac',
-    '2',
-    '-b:a',
-    '192k',
+    ...(silent
+      ? ['-c:a', 'aac', '-ac', '2', '-b:a', '64k']
+      : transcodeAudioArgs(variant.audio, probe)),
     // Timestamps continue from the segment's place in the whole file.
     '-output_ts_offset',
     String(startSeconds),
     '-muxdelay',
     '0',
+    // Speed and fps for the dashboard, on stdout.
+    '-progress',
+    'pipe:1',
+    '-nostats',
     '-f',
     'hls',
     '-hls_time',
@@ -364,7 +406,15 @@ async function startTranscodeRun(
     join(session.dir, 'seg%05d.ts'),
     join(session.dir, playlist)
   ]
-  spawnRun(deps, session, startSegment, playlist, args)
+  const run = spawnRun(deps, session, startSegment, playlist, args)
+  if (decodeArgs.length === 0) return
+  // GPU decoding that fails before the first segment: switch it off and
+  // carry on with the CPU.
+  run.proc.on('exit', (code) => {
+    if (code === 0 || session.run !== run || session.completed.has(startSegment)) return
+    deps.onDecodeFailure()
+    void startTranscodeRun(deps, session, startSegment, rung, false)
+  })
 }
 
 function spawnRun(
@@ -378,6 +428,15 @@ function spawnRun(
   deps.log(`HLS RUN session=${session.id} start=${startSeconds}s args=${JSON.stringify(args)}`)
   const proc = spawn(deps.ffmpegPath, args)
   const run: Run = { proc, startSegment, playlist, exited: false, watcher: null }
+  proc.stdout?.on('data', (chunk: Buffer) => {
+    if (session.run !== run) return
+    for (const line of chunk.toString().split('\n')) {
+      const speed = /^speed=\s*([\d.]+)x/.exec(line)
+      const fps = /^fps=([\d.]+)/.exec(line)
+      if (speed) session.stats.speed = parseFloat(speed[1])
+      if (fps) session.stats.fps = parseFloat(fps[1])
+    }
+  })
   let stderrTail = ''
   proc.stderr?.on('data', (chunk: Buffer) => {
     stderrTail = (stderrTail + chunk.toString()).slice(-8000)
@@ -712,7 +771,8 @@ async function createSession(
     run: null,
     completed: new Set(),
     remux,
-    lastAccess: Date.now()
+    lastAccess: Date.now(),
+    stats: { speed: null, fps: null }
   }
   sessions.set(id, session)
   return session
@@ -822,4 +882,31 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
     res.setHeader('Content-Type', 'video/mp2t')
     res.sendFile(join(session.dir, segmentName(index, 'ts')))
   })
+}
+
+export interface HlsConversion {
+  owner: string
+  // 'movie:12'
+  mediaKey: string
+  kind: 'transcode' | 'remux'
+  // Transcodes only.
+  height: number | null
+  // Whether ffmpeg is running for it right now (it pauses when far enough
+  // ahead of the viewer, and stops once it reaches the end).
+  running: boolean
+  speed: number | null
+  fps: number | null
+}
+
+// The conversions in progress, for the dashboard.
+export function hlsConversions(): HlsConversion[] {
+  return [...sessions.values()].map((s) => ({
+    owner: s.owner,
+    mediaKey: s.mediaKey,
+    kind: s.variant.kind,
+    height: s.variant.kind === 'transcode' ? s.variant.rung.height : null,
+    running: s.run !== null && !s.run.exited,
+    speed: s.stats.speed,
+    fps: s.stats.fps
+  }))
 }

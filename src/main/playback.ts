@@ -43,7 +43,7 @@ export const BANDWIDTH_HEADROOM = 1.5
 
 export interface PlaybackDecision {
   method: PlaybackMethod
-  // Only for remux: whether the audio is copied or converted.
+  // Remux and transcode: whether the original audio is kept or converted.
   audio?: 'copy' | 'convert'
   // Only for transcode.
   rung?: TranscodeRung
@@ -110,9 +110,16 @@ function fitRung(bandwidthKbps: number | null, sourceHeight: number | null): Tra
   return rung
 }
 
+// Only the picture is converted: the original audio is kept whenever the
+// device plays it (it's the audio's own quality, and costs nothing).
 function transcode(input: PlaybackInput, why: string, rung?: TranscodeRung): PlaybackDecision {
   const chosen = rung ?? fitRung(input.bandwidthKbps, input.probe.height)
-  return { method: 'transcode', rung: chosen, reason: `Converting to ${chosen.height}p: ${why}` }
+  return {
+    method: 'transcode',
+    rung: chosen,
+    audio: audioDecodable(input.probe, input.caps) ? 'copy' : 'convert',
+    reason: `Converting to ${chosen.height}p: ${why}`
+  }
 }
 
 export function decidePlayback(input: PlaybackInput): PlaybackDecision {

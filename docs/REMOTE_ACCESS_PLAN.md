@@ -332,7 +332,13 @@ version ships early.
   per-device Tailscale path, speed test, current rate and data today. Apps
   send a heartbeat every 10 s (iPhone build 15 / Apple TV build 18); older
   apps show up from their progress saves.
-- **v2 (with Phase 4):** Hardware + transcoding panels.
+- **v2 (with Phase 4):** Hardware + transcoding panels. **Built**: each
+  stream shows its conversion (converting to 720p / repackaging) with speed
+  in × real time and fps, warning below 1×; a Hardware panel with CPU and
+  memory use, the encoder and decoder in use, conversions running, and free
+  space on each library drive and the conversion cache. GPU load,
+  temperatures and SMART health still to do (they need vendor tools or
+  admin rights on Windows).
 - **v3 (after Phase 4):** History, stats, alerts, and the dashboard on
   mobile for admin devices.
 
