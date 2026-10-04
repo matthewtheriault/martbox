@@ -137,6 +137,13 @@ interface Run {
   watcher: NodeJS.Timeout | null
 }
 
+// How a session's conversion is keeping up (ffmpeg's -progress output), for
+// the dashboard: below 1× realtime the viewer will buffer.
+interface ConversionStats {
+  speed: number | null
+  fps: number | null
+}
+
 interface RemuxState {
   hasAudio: boolean
   keyframes: number[]
@@ -167,6 +174,7 @@ interface Session {
   completed: Set<number>
   remux: RemuxState | null
   lastAccess: number
+  stats: ConversionStats
 }
 
 const sessions = new Map<string, Session>()
@@ -380,6 +388,10 @@ async function startTranscodeRun(
     String(startSeconds),
     '-muxdelay',
     '0',
+    // Speed and fps for the dashboard, on stdout.
+    '-progress',
+    'pipe:1',
+    '-nostats',
     '-f',
     'hls',
     '-hls_time',
@@ -416,6 +428,15 @@ function spawnRun(
   deps.log(`HLS RUN session=${session.id} start=${startSeconds}s args=${JSON.stringify(args)}`)
   const proc = spawn(deps.ffmpegPath, args)
   const run: Run = { proc, startSegment, playlist, exited: false, watcher: null }
+  proc.stdout?.on('data', (chunk: Buffer) => {
+    if (session.run !== run) return
+    for (const line of chunk.toString().split('\n')) {
+      const speed = /^speed=\s*([\d.]+)x/.exec(line)
+      const fps = /^fps=([\d.]+)/.exec(line)
+      if (speed) session.stats.speed = parseFloat(speed[1])
+      if (fps) session.stats.fps = parseFloat(fps[1])
+    }
+  })
   let stderrTail = ''
   proc.stderr?.on('data', (chunk: Buffer) => {
     stderrTail = (stderrTail + chunk.toString()).slice(-8000)
@@ -750,7 +771,8 @@ async function createSession(
     run: null,
     completed: new Set(),
     remux,
-    lastAccess: Date.now()
+    lastAccess: Date.now(),
+    stats: { speed: null, fps: null }
   }
   sessions.set(id, session)
   return session
@@ -860,4 +882,31 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
     res.setHeader('Content-Type', 'video/mp2t')
     res.sendFile(join(session.dir, segmentName(index, 'ts')))
   })
+}
+
+export interface HlsConversion {
+  owner: string
+  // 'movie:12'
+  mediaKey: string
+  kind: 'transcode' | 'remux'
+  // Transcodes only.
+  height: number | null
+  // Whether ffmpeg is running for it right now (it pauses when far enough
+  // ahead of the viewer, and stops once it reaches the end).
+  running: boolean
+  speed: number | null
+  fps: number | null
+}
+
+// The conversions in progress, for the dashboard.
+export function hlsConversions(): HlsConversion[] {
+  return [...sessions.values()].map((s) => ({
+    owner: s.owner,
+    mediaKey: s.mediaKey,
+    kind: s.variant.kind,
+    height: s.variant.kind === 'transcode' ? s.variant.rung.height : null,
+    running: s.run !== null && !s.run.exited,
+    speed: s.stats.speed,
+    fps: s.stats.fps
+  }))
 }
