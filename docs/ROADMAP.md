@@ -242,8 +242,8 @@ everything after it are built in the new style from the start.
   contrast; 11 desktop and 8 TV text styles; a 4px spacing scale; five
   radii.
 - Accent choice: Settings → Appearance, saved per profile on the server
-  so it follows the person. Fire TV ships with it; desktop, iPhone and
-  Apple TV get it when they move to the new style.
+  so it follows the person. Fire TV ships with it; desktop (0.13.0),
+  iPhone (build 20) and Apple TV (build 23) have it since the restyle.
 - App icon: a neutral grey cube on black (`design/icon/make_icons.py`
   draws every size), so it suits any accent.
 
@@ -316,6 +316,10 @@ a controller. See "Retro games approach" above; also:
 
 **Phase 8 — Redesign.** Done when all six platforms share the new look and
 design rules (agreed in Phase 2). See below.
+- **Restyle done** (2026-10-04, app 0.13.0, iPhone build 20, Apple TV
+  build 23): desktop, iPhone and Apple TV moved onto the design tokens:
+  black base, the accent gradient with black labels, the accent picker,
+  and Inter on desktop. The minor features below are still to do.
 
 ## Redesign (Phase 8, after everything else)
 

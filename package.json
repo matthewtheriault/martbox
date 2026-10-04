@@ -1,6 +1,6 @@
 {
   "name": "martbox",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "MartBox - a self-hosted media server & native desktop app for Movies and TV Shows",
   "main": "./out/main/index.js",
   "author": "matthewtheriault",
@@ -19,7 +19,8 @@
     "release:mac": "bash scripts/release-mac.sh",
     "postinstall": "electron-builder install-app-deps",
     "prepare": "git config core.hooksPath .githooks || true",
-    "check:sensitive": "bash scripts/check-sensitive.sh"
+    "check:sensitive": "bash scripts/check-sensitive.sh",
+    "tokens": "node scripts/build-tokens.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.9",

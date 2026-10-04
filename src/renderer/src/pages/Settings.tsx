@@ -21,6 +21,7 @@ import {
   type TailnetPolicyCheck,
   type TailscaleGuestDevice
 } from '../../../shared/remoteAccess'
+import { ACCENTS, applyAccent } from '../lib/accent'
 import { useProfile } from '../lib/ProfileContext'
 import { AVATAR_COLORS } from '../lib/avatars'
 
@@ -432,6 +433,12 @@ export default function Settings(): JSX.Element {
       <h1 className="page-title">Settings</h1>
 
       <section className="settings-section">
+        <h2>Accent colour</h2>
+        <p className="settings-hint">Yours alone: it follows you to every device you sign in on.</p>
+        <AccentPicker />
+      </section>
+
+      <section className="settings-section">
         <h2>{remoteMode === 'client' ? 'Profiles' : 'Users'}</h2>
         {activeProfile.isAdmin ? (
           <p className="settings-status-ok">
@@ -462,7 +469,7 @@ export default function Settings(): JSX.Element {
         {usersError && <p className="settings-status-error">{usersError}</p>}
         <ul className="library-list">
           {profiles.map((profile) => (
-            <li key={profile.id} className="library-item">
+            <li key={profile.id} className="library-item user-item">
               {renamingId === profile.id ? (
                 <input
                   type="text"
@@ -480,26 +487,6 @@ export default function Settings(): JSX.Element {
                   {profile.id === activeProfile.id && (
                     <span className="library-type">(current)</span>
                   )}
-                  {manageUsers &&
-                    devices
-                      .filter((d) => d.profileId === profile.id)
-                      .map((device) => (
-                        <div key={device.id} className="user-device">
-                          <span>
-                            {device.name}
-                            <span className="library-type">
-                              {device.lastSeenAt
-                                ? `Last seen ${new Date(`${device.lastSeenAt}Z`).toLocaleString()}`
-                                : 'Never seen'}
-                              {device.speedMbps !== null &&
-                                ` · ${device.speedMbps} Mbps, ${device.latencyMs} ms`}
-                            </span>
-                          </span>
-                          <button className="btn-secondary" onClick={() => signOutDevice(device.id)}>
-                            Sign Out
-                          </button>
-                        </div>
-                      ))}
                 </div>
               )}
               <div className="library-actions">
@@ -524,6 +511,29 @@ export default function Settings(): JSX.Element {
                   Remove
                 </button>
               </div>
+              {manageUsers && devices.some((d) => d.profileId === profile.id) && (
+                <div className="user-devices">
+                  {devices
+                    .filter((d) => d.profileId === profile.id)
+                    .map((device) => (
+                      <div key={device.id} className="user-device">
+                        <span className="user-device-info">
+                          <span className="user-device-name">{device.name}</span>
+                          <span className="user-device-meta">
+                            {device.lastSeenAt
+                              ? `Last seen ${new Date(`${device.lastSeenAt}Z`).toLocaleString()}`
+                              : 'Never seen'}
+                            {device.speedMbps !== null &&
+                              ` · ${Math.round(device.speedMbps)} Mbps, ${Math.round(device.latencyMs ?? 0)} ms`}
+                          </span>
+                        </span>
+                        <button className="btn-secondary" onClick={() => signOutDevice(device.id)}>
+                          Sign Out
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -865,7 +875,7 @@ export default function Settings(): JSX.Element {
                 </button>
                 {speedResult && (
                   <p className="settings-hint" style={{ margin: 0, alignSelf: 'center' }}>
-                    {speedResult.mbps} Mbps from the server, {speedResult.latencyMs} ms latency
+                    {Math.round(speedResult.mbps)} Mbps from the server, {Math.round(speedResult.latencyMs)} ms latency
                   </p>
                 )}
               </div>
@@ -1096,6 +1106,36 @@ export default function Settings(): JSX.Element {
           </p>
         )}
       </section>
+    </div>
+  )
+}
+
+function AccentPicker(): JSX.Element {
+  const { activeProfile, profilePin } = useProfile()
+  const [current, setCurrent] = useState(document.documentElement.dataset.accent ?? 'blue')
+  return (
+    <div className="accent-picker" role="radiogroup" aria-label="Accent colour">
+      {ACCENTS.map((a) => (
+        <button
+          key={a.id}
+          role="radio"
+          aria-checked={a.id === current}
+          className="accent-swatch"
+          onClick={() => {
+            setCurrent(applyAccent(a.id))
+            window.api.appearance.set(activeProfile.id, profilePin, a.id).catch(() => {})
+          }}
+        >
+          <i style={{ background: `linear-gradient(135deg, ${a.start}, ${a.end})` }}>
+            {a.id === current && (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+            )}
+          </i>
+          {a.name}
+        </button>
+      ))}
     </div>
   )
 }

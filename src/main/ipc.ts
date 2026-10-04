@@ -624,6 +624,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     okOrThrow<MediaRequest[]>(await serverCall(`/api/requests?${profileQuery(profileId, pin)}`))
   )
   // Resolves to the new request, or the reason it wasn't made.
+  // This person's accent preset, kept by the server (this one, or the host
+  // in client mode) so it follows them to every device. null when none is
+  // saved or the server is too old to keep one.
+  ipcMain.handle('appearance:get', async (_e, profileId: number, pin: string | null) => {
+    const reply = await serverCall(`/api/appearance?${profileQuery(profileId, pin)}`).catch(() => null)
+    return reply && reply.status === 200 ? ((reply.body?.accent as string | null) ?? null) : null
+  })
+  ipcMain.handle(
+    'appearance:set',
+    async (_e, profileId: number, pin: string | null, accent: string) => {
+      await serverCall('/api/appearance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, pin, accent })
+      }).catch(() => null)
+    }
+  )
   ipcMain.handle(
     'requests:create',
     async (

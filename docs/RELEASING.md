@@ -42,8 +42,8 @@ Schema changes go through the additive migrations in `src/main/db.ts`.
    that checkout, with its signing key in `keystore.properties`:
    ```sh
    ./gradlew assembleRelease
-   gh release upload v0.2.0 app/build/outputs/apk/release/app-release.apk#MartBox-0.2.0.apk \
-     --repo matthewtheriault/martbox
+   cp app/build/outputs/apk/release/app-release.apk /tmp/MartBox-0.2.0.apk
+   gh release upload v0.2.0 /tmp/MartBox-0.2.0.apk --repo matthewtheriault/martbox
    ```
    Keep the signing key safe and backed up: an update signed with a
    different key won't install over the existing app.

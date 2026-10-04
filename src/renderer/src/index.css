@@ -1,21 +1,22 @@
+@import './tokens.css';
+
+/* The design tokens (tokens.css, generated from design/tokens.json) set the
+   colours, spacing and radii; the names below are the ones this stylesheet
+   has always used. The accent follows the person's choice: the app sets
+   data-accent on <html>. */
 :root {
-  --bg: #08080b;
-  --surface: #121218;
-  --surface-hover: #191922;
-  --border: rgba(255, 255, 255, 0.08);
-  --text: #f5f5f7;
-  --text-dim: #98979f;
-  --text-dimmer: #8a8993;
-  --accent-1: #7c5cff;
-  --accent-2: #22d3ee;
-  --accent-gradient: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  /* Labels on the accent gradient: white fails at the cyan end (1.8:1). */
-  --on-accent: #08080b;
-  --danger: #ff5470;
-  --success: #34d399;
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  --accent-1: var(--accent-start);
+  --accent-2: var(--accent-end);
+  --accent-gradient: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+  /* Labels on the accent gradient: black passes on every preset. */
+  --on-accent: var(--accent-ink);
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/Inter-Latin.woff2') format('woff2');
+  font-weight: 400 800;
+  font-display: swap;
 }
 
 * {
@@ -180,7 +181,7 @@ button {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: #fff;
   font-size: 0.92rem;
   outline: none;
@@ -188,7 +189,7 @@ button {
 
 .profile-picker-form input:focus {
   border-color: var(--accent-1);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-start) 22%, transparent);
 }
 
 .profile-avatar-swatches {
@@ -262,7 +263,7 @@ button {
   display: flex;
   flex-direction: column;
   padding: 1.4rem 1rem;
-  background: rgba(15, 15, 20, 0.7);
+  background: var(--surface-sidebar);
   border-right: 1px solid var(--border);
   backdrop-filter: blur(24px);
   gap: 1.8rem;
@@ -280,7 +281,7 @@ button {
   height: 22px;
   border-radius: 7px;
   background: var(--accent-gradient);
-  box-shadow: 0 0 18px rgba(124, 92, 255, 0.55);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent-start) 55%, transparent);
   flex-shrink: 0;
 }
 
@@ -299,7 +300,7 @@ button {
   padding: 0.5rem 0.7rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: var(--text-dimmer);
 }
 
@@ -351,8 +352,12 @@ button {
 }
 
 .sidebar-link.active {
-  background: linear-gradient(135deg, rgba(124, 92, 255, 0.22), rgba(34, 211, 238, 0.1));
-  color: #fff;
+  background: var(--accent-wash);
+  color: var(--text);
+}
+
+.sidebar-link.active svg {
+  color: var(--accent-start);
 }
 
 .sidebar-link-settings {
@@ -433,7 +438,7 @@ button {
   margin-left: 0.7rem;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
-  background: #1a1a20;
+  background: var(--surface-input);
   border: 1px solid var(--border);
   color: var(--text-dim);
   font-size: 0.9rem;
@@ -451,7 +456,7 @@ button {
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: #fff;
   font-size: 0.85rem;
   outline: none;
@@ -516,8 +521,8 @@ button {
 .hero-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, var(--bg) 4%, rgba(8, 8, 11, 0.55) 40%, rgba(8, 8, 11, 0.1) 70%),
-    linear-gradient(to right, rgba(8, 8, 11, 0.85) 0%, rgba(8, 8, 11, 0.35) 55%, transparent 90%);
+  background: linear-gradient(to top, var(--bg) 4%, rgba(0, 0, 0, 0.55) 40%, rgba(0, 0, 0, 0.1) 70%),
+    linear-gradient(to right, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.35) 55%, transparent 90%);
 }
 
 .hero-content {
@@ -603,7 +608,7 @@ button {
 .btn-primary {
   background: var(--accent-gradient);
   color: var(--on-accent);
-  box-shadow: 0 6px 20px rgba(124, 92, 255, 0.35);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent-start) 35%, transparent);
 }
 
 .btn-primary:hover {
@@ -695,7 +700,7 @@ button {
 }
 
 .poster-card:hover .poster-card-image {
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(124, 92, 255, 0.5);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 2px color-mix(in srgb, var(--accent-start) 50%, transparent);
 }
 
 .poster-card-image img {
@@ -904,8 +909,13 @@ button {
 
 .detail-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.8rem;
   margin-top: 1.3rem;
+}
+
+.detail-actions > * {
+  white-space: nowrap;
 }
 
 .cast-crew {
@@ -1014,7 +1024,7 @@ button {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: #fff;
   font-size: 0.92rem;
   font-family: inherit;
@@ -1026,7 +1036,7 @@ button {
 .metadata-editor-form input:focus,
 .metadata-editor-form textarea:focus {
   border-color: var(--accent-1);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-start) 22%, transparent);
 }
 
 .metadata-search-results {
@@ -1046,7 +1056,7 @@ button {
   padding: 0.6rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: inherit;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -1054,7 +1064,7 @@ button {
 
 .metadata-search-result:hover:not(:disabled) {
   border-color: var(--accent-1);
-  background: #202028;
+  background: var(--surface-hover);
 }
 
 .metadata-search-result:disabled {
@@ -1074,7 +1084,7 @@ button {
   width: 46px;
   height: 69px;
   border-radius: 4px;
-  background: #26262e;
+  background: var(--surface-hover);
   flex-shrink: 0;
 }
 
@@ -1156,7 +1166,7 @@ button {
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: #1c1c22;
+  background: var(--surface-hover);
 }
 
 .episode-still img {
@@ -1570,7 +1580,7 @@ button {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #1a1a20;
+  background: var(--surface-input);
   color: #fff;
   font-size: 0.92rem;
   outline: none;
@@ -1580,7 +1590,7 @@ button {
 .settings-row input:focus,
 .settings-row select:focus {
   border-color: var(--accent-1);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-start) 22%, transparent);
 }
 
 .settings-status-ok {
@@ -2283,7 +2293,7 @@ button {
 }
 
 .live-program.on-now {
-  background: rgba(124, 92, 255, 0.22);
+  background: color-mix(in srgb, var(--accent-start) 22%, transparent);
 }
 
 .live-program-title,
@@ -2375,7 +2385,7 @@ button {
   gap: 0.3rem;
   padding: 0.25rem 0.4rem 0.25rem 0.7rem;
   border-radius: 999px;
-  background: rgba(124, 92, 255, 0.2);
+  background: color-mix(in srgb, var(--accent-start) 20%, transparent);
   font-size: 0.85rem;
 }
 
@@ -2732,4 +2742,107 @@ button {
 
 .live-add-block {
   align-self: flex-start;
+}
+
+/* Settings → Accent colour: one gradient swatch per preset. */
+.accent-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.accent-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+
+.accent-swatch[aria-checked='true'] {
+  color: var(--text);
+}
+
+.accent-swatch i {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px transparent;
+}
+
+.accent-swatch[aria-checked='true'] i {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+.accent-swatch:focus-visible {
+  outline: none;
+}
+
+.accent-swatch:focus-visible i {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 5px var(--focus-ring);
+}
+
+.accent-swatch svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.user-device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-device-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.user-device-meta {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+
+/* A user: name and actions along the top, their devices underneath at full
+   width, each with a small Sign Out. */
+.user-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3) var(--space-4);
+}
+
+.user-devices {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.user-device .btn-secondary {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8125rem;
 }
