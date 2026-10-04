@@ -384,8 +384,6 @@ export default function Player(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [volume, offset, target, directPlay, upNextCountdown])
 
-  if (!mediaType || !target || !port) return null
-
   useEffect(() => {
     const onInput = (): void => {
       lastInput.current = Date.now()
@@ -412,6 +410,10 @@ export default function Player(): JSX.Element | null {
       clearInterval(timer)
     }
   }, [])
+
+  // Every hook above this line: React needs the same hooks on every render.
+  if (!mediaType || !target || !port) return null
+
 
   return (
     <div className={fullscreen ? 'player-page player-page-fullscreen' : 'player-page'} ref={containerRef}>
