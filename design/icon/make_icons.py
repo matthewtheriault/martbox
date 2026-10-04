@@ -6,7 +6,7 @@ size the apps need. Neutral so it suits whichever accent a person picks.
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 TOP = (237, 237, 240)
 RIGHT = (184, 184, 191)
@@ -86,6 +86,21 @@ def wide(w, h):
     return img.convert('RGB')
 
 
+FONT = Path(__file__).parent / 'fonts' / 'Inter-ExtraBold.ttf'
+
+
+def banner(w, h):
+    """Fire TV / Android TV launcher banner: the cube and the wordmark."""
+    img = background(w, h)
+    img = Image.alpha_composite(img, cube_layer(w, h, w * 0.28, h * 0.5, h / 768 * 0.95, shadow=False))
+    text = Image.new('RGBA', (w * SS, h * SS), (0, 0, 0, 0))
+    font = ImageFont.truetype(str(FONT), round(h * 0.17 * SS))
+    d = ImageDraw.Draw(text)
+    box = d.textbbox((0, 0), 'martbox', font=font)
+    d.text((w * 0.46 * SS, (h * SS - (box[3] - box[1])) / 2 - box[1]), 'martbox', font=font, fill=(245, 245, 247))
+    return Image.alpha_composite(img, text.resize((w, h), Image.LANCZOS)).convert('RGB')
+
+
 if __name__ == '__main__':
     out = Path(sys.argv[1] if len(sys.argv) > 1 else 'icons')
     out.mkdir(parents=True, exist_ok=True)
@@ -99,4 +114,8 @@ if __name__ == '__main__':
         front.save(out / f'front-{w}x{h}.png')
     for w, h in ((1920, 720), (3840, 1440), (2320, 720), (4640, 1440)):
         wide(w, h).save(out / f'shelf-{w}x{h}.png')
+    banner(320, 180).save(out / 'banner-320x180.png')
+    banner(640, 360).save(out / 'banner-640x360.png')
+    for name, px in (('mdpi', 48), ('hdpi', 72), ('xhdpi', 96), ('xxhdpi', 144), ('xxxhdpi', 192)):
+        square_icon(px, rounded=True).save(out / f'launcher-{name}.png')
     print('wrote', len(list(out.iterdir())), 'files to', out)
