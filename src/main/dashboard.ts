@@ -3,6 +3,7 @@ import type { Socket } from 'net'
 import type express from 'express'
 import type {
   DashboardDevice,
+  DashboardHardware,
   DashboardSnapshot,
   DashboardStream,
   MediaType,
@@ -310,10 +311,22 @@ export interface PeerRecord {
   path: 'direct' | 'relayed' | 'idle'
 }
 
+export interface ConversionRecord {
+  owner: string
+  mediaKey: string
+  kind: 'transcode' | 'remux'
+  height: number | null
+  running: boolean
+  speed: number | null
+  fps: number | null
+}
+
 export function snapshot(
   devices: DeviceRecord[],
   peers: PeerRecord[] | null,
-  uploadCapacityMbps: number | null
+  uploadCapacityMbps: number | null,
+  conversions: ConversionRecord[] = [],
+  hardware: DashboardHardware = EMPTY_HARDWARE
 ): DashboardSnapshot {
   const now = Date.now()
   const streamList: DashboardStream[] = [...streams.values()]
@@ -339,7 +352,8 @@ export function snapshot(
         reason: s.reason,
         mbps: rate(s.recentBytes, now),
         recentStalls: s.stallTimes.length,
-        startedAt: s.startedAt
+        startedAt: s.startedAt,
+        conversion: conversionFor(conversions, s)
       }
     })
   const deviceList: DashboardDevice[] = devices.map((d) => {
@@ -368,8 +382,32 @@ export function snapshot(
       currentMbps: totalSamples.length ? totalSamples[totalSamples.length - 1].mbps : 0,
       uploadCapacityMbps,
       devices: deviceList
-    }
+    },
+    hardware
   }
+}
+
+const EMPTY_HARDWARE: DashboardHardware = {
+  cpuModel: '',
+  cpuPercent: 0,
+  memoryUsedBytes: 0,
+  memoryTotalBytes: 0,
+  encoder: '',
+  decoder: '',
+  conversionsRunning: 0,
+  disks: []
+}
+
+function conversionFor(
+  conversions: ConversionRecord[],
+  stream: Stream
+): DashboardStream['conversion'] {
+  const match = conversions.find(
+    (c) => c.owner === stream.owner.key && c.mediaKey === `${stream.mediaType}:${stream.mediaId}`
+  )
+  if (!match) return null
+  const { kind, height, running, speed, fps } = match
+  return { kind, height, running, speed, fps }
 }
 
 // For tests.

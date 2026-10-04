@@ -12,8 +12,10 @@ import {
 import { extname, resolve, sep, join, basename, dirname } from 'path'
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
+import { cpuMemory, diskSpace } from './systemStats'
 import {
   clearStaleHlsFolders,
+  hlsConversions,
   registerHlsRoutes,
   stopAllHlsSessions,
   stopHlsSessionsFor
@@ -49,6 +51,7 @@ import type { Server } from 'http'
 import {
   getEpisode,
   getMovie,
+  listLibraries,
   listProfiles,
   createProfile,
   renameProfile,
@@ -233,11 +236,47 @@ export function dashboardSnapshot(): DashboardSnapshot {
     lastSeenAt: d.lastSeenAt
   }))
   const capacity = parseFloat(getSetting('uploadCapacityMbps') ?? '')
+  const conversions = hlsConversions()
+  const disks = diskSpace([
+    ...listLibraries().map((l) => ({ label: l.name, path: l.path })),
+    { label: 'Conversion cache', path: hlsCacheDir() }
+  ])
   return snapshot(
     devices,
     getLastRemoteAccessStatus().peers ?? null,
-    Number.isFinite(capacity) && capacity > 0 ? capacity : null
+    Number.isFinite(capacity) && capacity > 0 ? capacity : null,
+    conversions,
+    {
+      ...cpuMemory(),
+      encoder: encoderLabel,
+      decoder: hardwareDecodeDisabled ? 'CPU (GPU decoding failed earlier)' : decoderLabel,
+      conversionsRunning: conversions.filter((c) => c.running).length,
+      disks
+    }
   )
+}
+
+// Filled in once detection finishes, for the dashboard.
+let encoderLabel = 'Checking…'
+let decoderLabel = 'Checking…'
+const ENCODER_NAMES: Record<string, string> = {
+  h264_amf: 'AMD GPU (AMF)',
+  h264_nvenc: 'NVIDIA GPU (NVENC)',
+  h264_qsv: 'Intel GPU (Quick Sync)'
+}
+
+function labelCodecs(): void {
+  void detectHardwareEncoder().then((encoder) => {
+    encoderLabel = encoder ? ENCODER_NAMES[encoder] : 'CPU (x264)'
+  })
+  void detectHardwareDecoder().then((decoder) => {
+    decoderLabel =
+      decoder === 'd3d11va'
+        ? 'GPU (D3D11VA)'
+        : decoder === 'videotoolbox'
+          ? 'GPU (VideoToolbox)'
+          : 'CPU'
+  })
 }
 
 export function stopDashboardStream(key: string, message: string): boolean {
@@ -1481,6 +1520,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // resolved by the time anyone's actually pressed play).
   void detectHardwareEncoder()
   void detectHardwareDecoder()
+  labelCodecs()
   // Channels pick up anything added while MartBox was closed.
   void rebuildAllChannels()
 

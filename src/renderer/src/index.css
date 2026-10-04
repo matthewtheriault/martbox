@@ -2511,3 +2511,71 @@ button {
 .live-still-box h2 {
   margin: 0;
 }
+
+/* ---------- dashboard: hardware ---------- */
+
+.dash-hw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.dash-hw-tile {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.dash-hw-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.dash-hw-value .dash-dim {
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.dash-hw-note {
+  font-size: 0.8rem;
+}
+
+.dash-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.dash-meter-fill {
+  height: 100%;
+  background: var(--accent-gradient);
+}
+
+.dash-meter-high {
+  background: #fbbf24;
+}
+
+.dash-disks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.dash-disk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dash-disk-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}

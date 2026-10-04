@@ -23,6 +23,32 @@ function formatMbps(mbps: number): string {
   return mbps > 0 ? '< 0.1 Mbps' : '0 Mbps'
 }
 
+function conversionLine(stream: DashboardStream): { text: string; warn: boolean } | null {
+  const c = stream.conversion
+  if (!c) return null
+  const what = c.kind === 'remux' ? 'Repackaging' : `Converting to ${c.height}p`
+  if (!c.running) return { text: `${what} · ready ahead of the viewer`, warn: false }
+  if (c.speed === null) return { text: `${what} · starting…`, warn: false }
+  const fps = c.fps ? ` · ${Math.round(c.fps)} fps` : ''
+  return {
+    text: `${what} · ${c.speed.toFixed(1)}× real time${fps}`,
+    // Slower than playback: the viewer will run out and buffer.
+    warn: c.kind === 'transcode' && c.speed < 1
+  }
+}
+
+function Meter({ fraction }: { fraction: number }): JSX.Element {
+  const pct = Math.max(0, Math.min(1, fraction)) * 100
+  return (
+    <div className="dash-meter">
+      <div
+        className={pct > 90 ? 'dash-meter-fill dash-meter-high' : 'dash-meter-fill'}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  )
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
   if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`
@@ -175,6 +201,15 @@ function StreamCard({
             <span className="dash-reason">{stream.reason.replace(/^[^:]*:\s*/, '')}</span>
           )}
         </div>
+        {(() => {
+          const line = conversionLine(stream)
+          return line ? (
+            <div className={line.warn ? 'dash-warning' : 'dash-dim'}>
+              {line.text}
+              {line.warn && ' — slower than playback, they’ll buffer'}
+            </div>
+          ) : null
+        })()}
         {stream.recentStalls > 0 && (
           <div className="dash-warning">
             Buffered {stream.recentStalls}× in the last 5 minutes
@@ -372,7 +407,7 @@ export default function Dashboard(): JSX.Element | null {
   }
   if (!data) return <div className="page" />
 
-  const { streams, network } = data
+  const { streams, network, hardware } = data
   const capacity = network.uploadCapacityMbps
   const saveCapacity = (): void => {
     if (capacityDraft === null) return
@@ -536,6 +571,55 @@ export default function Dashboard(): JSX.Element | null {
               })}
             </tbody>
           </table>
+        )}
+      </section>
+
+      <section className="dash-section">
+        <h2>Hardware</h2>
+        <div className="dash-hw-grid">
+          <div className="dash-hw-tile">
+            <div className="dash-dim">CPU</div>
+            <div className="dash-hw-value">{hardware.cpuPercent}%</div>
+            <Meter fraction={hardware.cpuPercent / 100} />
+            <div className="dash-dim dash-hw-note">{hardware.cpuModel}</div>
+          </div>
+          <div className="dash-hw-tile">
+            <div className="dash-dim">Memory</div>
+            <div className="dash-hw-value">
+              {formatBytes(hardware.memoryUsedBytes)}
+              <span className="dash-dim"> of {formatBytes(hardware.memoryTotalBytes)}</span>
+            </div>
+            <Meter
+              fraction={
+                hardware.memoryTotalBytes ? hardware.memoryUsedBytes / hardware.memoryTotalBytes : 0
+              }
+            />
+          </div>
+          <div className="dash-hw-tile">
+            <div className="dash-dim">Conversions</div>
+            <div className="dash-hw-value">{hardware.conversionsRunning} running</div>
+            <div className="dash-dim dash-hw-note">Encoding: {hardware.encoder}</div>
+            <div className="dash-dim dash-hw-note">Decoding: {hardware.decoder}</div>
+          </div>
+        </div>
+        {hardware.disks.length > 0 && (
+          <div className="dash-disks">
+            {hardware.disks.map((disk) => {
+              const used = disk.totalBytes - disk.freeBytes
+              const low = disk.totalBytes > 0 && disk.freeBytes / disk.totalBytes < 0.1
+              return (
+                <div key={disk.path} className="dash-disk">
+                  <div className="dash-disk-head">
+                    <span>{disk.label}</span>
+                    <span className={low ? 'dash-warning' : 'dash-dim'}>
+                      {formatBytes(disk.freeBytes)} free of {formatBytes(disk.totalBytes)}
+                    </span>
+                  </div>
+                  <Meter fraction={disk.totalBytes ? used / disk.totalBytes : 0} />
+                </div>
+              )
+            })}
+          </div>
         )}
       </section>
     </div>
