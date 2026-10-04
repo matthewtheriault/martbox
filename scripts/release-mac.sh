@@ -62,6 +62,9 @@ detach_stale_images() {
   done
 }
 
+# See scripts/hdiutil-shim/hdiutil: detaches a just-created dmg before it's resized.
+export PATH="$ROOT_DIR/scripts/hdiutil-shim:$PATH"
+
 npm run build:sidecar
 npx electron-vite build
 for attempt in 1 2 3; do

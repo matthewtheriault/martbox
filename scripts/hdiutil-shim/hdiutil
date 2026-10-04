@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Put ahead of /usr/bin on PATH by release-mac.sh. macOS 26 sometimes leaves
+# the image `hdiutil create -srcfolder` just made still attached, and then
+# electron-builder's `hdiutil resize` of it fails with "Resource temporarily
+# unavailable" on every retry. Detach that image first, then run the real
+# hdiutil unchanged.
+if [[ "${1:-}" == "resize" ]]; then
+  image="${!#}"
+  real=$(cd "$(dirname "$image")" 2>/dev/null && pwd -P)/$(basename "$image")
+  /usr/bin/hdiutil info | awk -v img="$real" -v img2="$image" '
+    /^image-path/ { sub(/^image-path *: */, ""); match_img = ($0 == img || $0 == img2) }
+    match_img && /^\/dev\/disk[0-9]+[ \t]/ { print $1; match_img = 0 }
+  ' | while read -r dev; do
+    /usr/bin/hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+  done
+fi
+exec /usr/bin/hdiutil "$@"
