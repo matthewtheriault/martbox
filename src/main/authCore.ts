@@ -139,7 +139,12 @@ export const MEDIA_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
 const MEDIA_PATH_PREFIXES = ['/stream/', '/probe/', '/subtitles/', '/hls/']
 
 export function isMediaRoute(path: string): boolean {
-  return path === '/image' || MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))
+  return (
+    path === '/image' ||
+    // Profile photos load like posters (an <img>/AsyncImage can't send a header).
+    /^\/api\/profiles\/\d+\/avatar$/.test(path) ||
+    MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))
+  )
 }
 
 export function signMediaToken(secret: string, deviceId: number, expiresAtMs: number): string {

@@ -319,7 +319,18 @@ design rules (agreed in Phase 2). See below.
 - **Restyle done** (2026-10-04, app 0.13.0, iPhone build 20, Apple TV
   build 23): desktop, iPhone and Apple TV moved onto the design tokens:
   black base, the accent gradient with black labels, the accent picker,
-  and Inter on desktop. The minor features below are still to do.
+  and Inter on desktop.
+- **Minor features done** (server and app 0.14.0, iPhone build 21, Apple TV
+  build 24), on every client:
+  - Skip Intro, and Up Next as the credits start. Intros and credits are
+    found by listening: the stretch of audio neighbouring episodes share
+    (or chapters named Intro/Credits), worked out in the background.
+  - Sleep timer (15–90 minutes, or the end of the episode).
+  - Collections the admin makes, as rows on Home and their own page.
+  - Profile photos (or a colour) and a new profile picker.
+  - Year in Review, from a per-profile watch log kept for good.
+  - Trailers (in the app on desktop; the YouTube app elsewhere).
+  - Desktop: ⌘K / Ctrl+K command palette and page shortcuts.
 
 ## Redesign (Phase 8, after everything else)
 

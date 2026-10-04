@@ -171,6 +171,10 @@ describe('media tokens', () => {
     for (const p of ['/stream/movie/1', '/probe/episode/2', '/subtitles/movie/1/0', '/image', '/hls/movie/1/index.m3u8', '/hls/session/x/seg00000.ts']) {
       expect(isMediaRoute(p)).toBe(true)
     }
+    expect(isMediaRoute('/api/profiles/3/avatar')).toBe(true)
+    for (const p of ['/api/profiles/3/avatar/delete', '/api/profiles/3', '/api/profiles/x/avatar']) {
+      expect(isMediaRoute(p)).toBe(false)
+    }
     for (const p of ['/api/movies', '/api/profiles', '/api/auth/me', '/images', '/streams']) {
       expect(isMediaRoute(p)).toBe(false)
     }
