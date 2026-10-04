@@ -19,6 +19,8 @@ interface SubtitleTrackInfo {
 const UP_NEXT_SECONDS = 10
 const CONTROLS_HIDE_MS = 3000
 
+const STILL_WATCHING_MS = 3 * 60 * 60 * 1000
+
 export default function Player(): JSX.Element | null {
   const { mediaType, id } = useParams<{ mediaType: MediaType; id: string }>()
   const port = usePort()
@@ -36,6 +38,10 @@ export default function Player(): JSX.Element | null {
   const [nextEpisode, setNextEpisode] = useState<Episode | null>(null)
 
   const [paused, setPaused] = useState(false)
+  // Pauses and asks after STILL_WATCHING_MS of playing with nothing pressed
+  // (mainly episodes playing on by themselves overnight).
+  const [askStillWatching, setAskStillWatching] = useState(false)
+  const lastInput = useRef(Date.now())
   const [currentTime, setCurrentTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
   const [bufferedFraction, setBufferedFraction] = useState(0)
@@ -380,8 +386,56 @@ export default function Player(): JSX.Element | null {
 
   if (!mediaType || !target || !port) return null
 
+  useEffect(() => {
+    const onInput = (): void => {
+      lastInput.current = Date.now()
+    }
+    window.addEventListener('keydown', onInput)
+    window.addEventListener('mousemove', onInput)
+    window.addEventListener('mousedown', onInput)
+    const timer = setInterval(() => {
+      const video = videoRef.current
+      if (!video || video.paused) {
+        // Paused costs nothing; the clock starts again from here.
+        lastInput.current = Date.now()
+        return
+      }
+      if (Date.now() - lastInput.current > STILL_WATCHING_MS) {
+        video.pause()
+        setAskStillWatching(true)
+      }
+    }, 60_000)
+    return () => {
+      window.removeEventListener('keydown', onInput)
+      window.removeEventListener('mousemove', onInput)
+      window.removeEventListener('mousedown', onInput)
+      clearInterval(timer)
+    }
+  }, [])
+
   return (
     <div className={fullscreen ? 'player-page player-page-fullscreen' : 'player-page'} ref={containerRef}>
+      {askStillWatching && (
+        <div className="live-still">
+          <div className="live-still-box">
+            <h2>Still watching?</h2>
+            <p>{target?.title} paused after a while with nothing pressed.</p>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                lastInput.current = Date.now()
+                setAskStillWatching(false)
+                void videoRef.current?.play()
+              }}
+            >
+              Keep watching
+            </button>
+            <button className="btn-secondary" onClick={() => navigate(-1)}>
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
       {controlsVisible && (
         <button className="player-back" onClick={() => navigate(-1)}>
           ← Back

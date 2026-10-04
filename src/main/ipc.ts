@@ -703,6 +703,33 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     deleteRequest(id)
   })
 
+  // The desktop's channel player reports what it's showing, like the apps'
+  // heartbeat: straight to the dashboard here, or to the host in client mode.
+  ipcMain.handle(
+    'dashboard:heartbeat',
+    async (
+      _e,
+      profileId: number,
+      mediaType: MediaType,
+      mediaId: number,
+      positionSeconds: number,
+      state: 'playing' | 'paused' | 'buffering',
+      channelId: number | null
+    ) => {
+      if (getSetting('remoteAccessMode') !== 'client') {
+        noteLocalPlayback(profileId, mediaType, mediaId, positionSeconds, state, channelId)
+        return
+      }
+      await remoteClient
+        .rawRequest('/api/playback/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediaType, mediaId, positionSeconds, state, channelId })
+        })
+        .catch(() => {})
+    }
+  )
+
   // --- Dashboard (host only, admin only) ---
 
   // null in client mode: the dashboard lives on the server.

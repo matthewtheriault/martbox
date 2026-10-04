@@ -166,6 +166,7 @@ function StreamCard({
       </div>
       <div className="dash-stream-body">
         <div className="dash-stream-title">{stream.title}</div>
+        {stream.channel && <div className="dash-live">Live · {stream.channel}</div>}
         {stream.subtitle && <div className="dash-stream-subtitle">{stream.subtitle}</div>}
         <div className="dash-stream-who">
           <span

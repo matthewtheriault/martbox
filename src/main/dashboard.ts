@@ -59,6 +59,7 @@ interface Stream {
   reason: string | null
   // What the stream is expected to take from the upload.
   expectedKbps: number | null
+  channel: string | null
   startedAt: number
   lastSeen: number
   // (time, bytes) for the current rate.
@@ -106,6 +107,7 @@ function touch(owner: StreamOwner, mediaType: MediaType, mediaId: number): Strea
       method: null,
       reason: null,
       expectedKbps: null,
+      channel: null,
       startedAt: Date.now(),
       lastSeen: Date.now(),
       recentBytes: [],
@@ -145,10 +147,13 @@ export function noteHeartbeat(
   mediaId: number,
   positionSeconds: number,
   state: StreamState | null,
-  stallCount: number | null
+  stallCount: number | null,
+  // Set when it's playing on a Live Channel ("5 · Movie Night").
+  channel: string | null = null
 ): void {
   const stream = touch(owner, mediaType, mediaId)
   if (!stream) return
+  if (channel !== null) stream.channel = channel
   if (Number.isFinite(positionSeconds) && positionSeconds >= 0) {
     stream.positionSeconds = positionSeconds
   }
@@ -370,6 +375,7 @@ export function snapshot(
         mbps: rate(s.recentBytes, now),
         recentStalls: s.stallTimes.length,
         startedAt: s.startedAt,
+        channel: s.channel,
         conversion: conversionFor(conversions, s)
       }
     })
