@@ -14,7 +14,7 @@ import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { cpuMemory, diskSpace } from './systemStats'
 import { checkAlerts, currentAlerts } from './alerts'
-import { startHistory } from './history'
+import { historyStats, startHistory } from './history'
 import {
   clearStaleHlsFolders,
   hlsConversions,
@@ -41,6 +41,8 @@ import {
   cancelRequest,
   createRequest,
   listRequests,
+  pendingRequestCount,
+  setRequestStatus,
   titleDetails
 } from './requests'
 import { discoverForRequests, requestTitleInfo, searchForRequests } from './tmdb'
@@ -1066,6 +1068,54 @@ function registerRequestRoutes(app: express.Express): void {
   })
 }
 
+// The admin's phone: the same dashboard and request queue as the server PC,
+// for a device signed in as the admin profile. Everyone else gets a 403.
+function registerAdminRoutes(app: express.Express): void {
+  const json = express.json({ limit: '4kb' })
+  const isAdmin = (res: express.Response): boolean => {
+    if (deviceProfile(res)?.isAdmin) return true
+    res.status(403).json({ error: 'Only the admin can see this' })
+    return false
+  }
+
+  app.get('/api/admin/dashboard', (_req, res) => {
+    if (!isAdmin(res)) return
+    res.json({ ...dashboardSnapshot(), pendingRequests: pendingRequestCount() })
+  })
+
+  app.get('/api/admin/stats', (req, res) => {
+    if (!isAdmin(res)) return
+    const days = Number(req.query.days)
+    res.json(historyStats(days === 7 || days === 30 || days === 90 ? days : 30))
+  })
+
+  app.get('/api/admin/requests', (_req, res) => {
+    if (!isAdmin(res)) return
+    res.json(listRequests())
+  })
+
+  app.post('/api/admin/requests/:id', json, (req, res) => {
+    if (!isAdmin(res)) return
+    const { status, note } = req.body ?? {}
+    if (status !== 'approved' && status !== 'declined' && status !== 'pending') {
+      res.status(400).json({ error: 'Bad status' })
+      return
+    }
+    setRequestStatus(parseInt(req.params.id, 10), status, typeof note === 'string' ? note : null)
+    res.json({ ok: true })
+  })
+
+  app.post('/api/admin/streams/stop', json, (req, res) => {
+    if (!isAdmin(res)) return
+    const { key, message } = req.body ?? {}
+    if (typeof key !== 'string') {
+      res.status(400).json({ error: 'Bad stream' })
+      return
+    }
+    res.json({ ok: stopDashboardStream(key, typeof message === 'string' ? message : '') })
+  })
+}
+
 // Mirrors the same reads/writes exposed over Electron IPC in ipc.ts, so a
 // friend's MartBox install (client mode) can reach this host's catalog and
 // watch history over the tailnet instead of its own empty local DB. Thin
@@ -1387,6 +1437,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   registerMetadataApi(app)
   registerRequestRoutes(app)
   registerChannelRoutes(app)
+  registerAdminRoutes(app)
   registerHlsRoutes(app, {
     ffmpegPath,
     resolveMediaPath,
