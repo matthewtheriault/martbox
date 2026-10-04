@@ -5,7 +5,7 @@ import { join } from 'path'
 import { pipeline } from 'stream/promises'
 import type express from 'express'
 import type { MediaProbe } from './ffprobe'
-import { TRANSCODE_LADDER, type TranscodeRung } from './playback'
+import { TRANSCODE_LADDER, rungFor, type OutputCodec, type TranscodeRung } from './playback'
 
 // HLS for files Apple's players (AVPlayer on iPhone, iPad and Apple TV)
 // can't open as they are. AVPlayer refuses a progressive stream that can't
@@ -83,12 +83,19 @@ function silentAudioInput(seconds: number): string[] {
 export type HlsVariant =
   // audio: keep the original track ('copy') or convert it. Apps from
   // before this send neither, and get the old stereo AAC.
-  | { kind: 'transcode'; rung: TranscodeRung; audio: 'copy' | 'convert' | 'stereo' }
+  // codec: HEVC conversions are written as fragmented MP4 (Apple players
+  // only take HEVC that way), H.264 ones as MPEG-TS.
+  | {
+      kind: 'transcode'
+      rung: TranscodeRung
+      audio: 'copy' | 'convert' | 'stereo'
+      codec: OutputCodec
+    }
   | { kind: 'remux'; audio: 'copy' | 'convert' }
 
 export function variantKey(variant: HlsVariant): string {
   return variant.kind === 'transcode'
-    ? `transcode:${variant.rung.height}:${variant.rung.kbps}:${variant.audio}`
+    ? `transcode:${variant.rung.height}:${variant.rung.kbps}:${variant.audio}:${variant.codec}`
     : `remux:${variant.audio}`
 }
 
@@ -99,9 +106,10 @@ export function variantFromQuery(query: Record<string, unknown>): HlsVariant {
     return { kind: 'remux', audio: query.audio === 'convert' ? 'convert' : 'copy' }
   }
   const height = parseInt(String(query.h ?? ''), 10)
-  const rung = TRANSCODE_LADDER.find((r) => r.height === height) ?? TRANSCODE_LADDER[0]
+  const base = TRANSCODE_LADDER.find((r) => r.height === height) ?? TRANSCODE_LADDER[0]
   const audio = query.audio === 'copy' ? 'copy' : query.audio === 'convert' ? 'convert' : 'stereo'
-  return { kind: 'transcode', rung, audio }
+  const codec: OutputCodec = query.codec === 'hevc' ? 'hevc' : 'h264'
+  return { kind: 'transcode', rung: rungFor(base, codec), audio, codec }
 }
 
 export interface HlsDeps {
@@ -112,7 +120,7 @@ export interface HlsDeps {
   keyframes(filePath: string): Promise<number[] | null>
   // ffmpeg video encoder arguments (hardware when available) for a size
   // and bitrate; HDR sources are tone-mapped to SDR.
-  videoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<string[]>
+  videoArgs(rung: TranscodeRung, probe: MediaProbe, codec: OutputCodec): Promise<string[]>
   // Input options for decoding the source on the GPU ([] when there's none).
   decodeArgs(): Promise<string[]>
   // A conversion using decodeArgs failed before producing anything.
@@ -155,7 +163,6 @@ interface RemuxState {
   pieces: Map<number, string>
   // A run reached the end of the file.
   endReached: boolean
-  lastRequested: number
 }
 
 interface Session {
@@ -174,7 +181,19 @@ interface Session {
   completed: Set<number>
   remux: RemuxState | null
   lastAccess: number
+  // The segment the player asked for most recently.
+  lastRequested: number
   stats: ConversionStats
+}
+
+// Fragmented-MP4 segments (with an init segment): remuxes, and HEVC
+// transcodes. H.264 transcodes are MPEG-TS.
+function usesFmp4(session: Session): boolean {
+  return session.remux !== null || (session.variant.kind === 'transcode' && session.variant.codec === 'hevc')
+}
+
+function segmentExt(session: Session): 'ts' | 'm4s' {
+  return usesFmp4(session) ? 'm4s' : 'ts'
 }
 
 const sessions = new Map<string, Session>()
@@ -251,16 +270,19 @@ function segmentLengths(starts: number[], durationSeconds: number): number[] {
 // Builds the full VOD playlist for a transcode.
 export function vodPlaylist(
   durationSeconds: number,
-  segmentUrl: (index: number) => string
+  segmentUrl: (index: number) => string,
+  // Fragmented-MP4 segments (HEVC) need their init segment named.
+  initUrl?: string
 ): string {
   const count = segmentCount(durationSeconds)
   const lines = [
     '#EXTM3U',
-    '#EXT-X-VERSION:3',
+    initUrl ? '#EXT-X-VERSION:7' : '#EXT-X-VERSION:3',
     // Must cover the longest segment — the last can run to SEGMENT_SECONDS + 1.
     `#EXT-X-TARGETDURATION:${SEGMENT_SECONDS + 1}`,
     '#EXT-X-MEDIA-SEQUENCE:0',
-    '#EXT-X-PLAYLIST-TYPE:VOD'
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    ...(initUrl ? [`#EXT-X-MAP:URI="${initUrl}"`] : [])
   ]
   for (let i = 0; i < count; i++) {
     const length = i < count - 1 ? SEGMENT_SECONDS : durationSeconds - SEGMENT_SECONDS * (count - 1)
@@ -354,11 +376,13 @@ async function startTranscodeRun(
 ): Promise<void> {
   killRun(session)
   const startSeconds = session.starts[startSegment]
-  const playlist = `run-${startSegment}-${Date.now()}.m3u8`
+  const runId = `${startSegment}-${Date.now()}`
+  const playlist = `run-${runId}.m3u8`
   const probe = await deps.probe(session.filePath)
   const silent = probe.audioCodec === null
   const decodeArgs = allowHardwareDecode ? await deps.decodeArgs() : []
   const variant = session.variant as Extract<HlsVariant, { kind: 'transcode' }>
+  const fmp4 = usesFmp4(session)
   const args = [
     '-hide_banner',
     '-loglevel',
@@ -374,7 +398,7 @@ async function startTranscodeRun(
     '-map',
     silent ? '1:a:0' : '0:a:0?',
     ...(silent ? ['-shortest'] : []),
-    ...(await deps.videoArgs(rung, probe)),
+    ...(await deps.videoArgs(rung, probe, variant.codec)),
     // A keyframe exactly every segment, counted from this run's start —
     // which is itself on a segment boundary — so every run cuts at the
     // same absolute times.
@@ -383,9 +407,11 @@ async function startTranscodeRun(
     ...(silent
       ? ['-c:a', 'aac', '-ac', '2', '-b:a', '64k']
       : transcodeAudioArgs(variant.audio, probe)),
-    // Timestamps continue from the segment's place in the whole file.
+    // Timestamps continue from the segment's place in the whole file
+    // (fragmented MP4 adds the same pad as remuxes, so B-frames never
+    // start negative and every run lines up).
     '-output_ts_offset',
-    String(startSeconds),
+    String(fmp4 ? startSeconds + REMUX_TIMESTAMP_PAD : startSeconds),
     '-muxdelay',
     '0',
     // Speed and fps for the dashboard, on stdout.
@@ -396,6 +422,16 @@ async function startTranscodeRun(
     'hls',
     '-hls_time',
     String(SEGMENT_SECONDS),
+    ...(fmp4
+      ? [
+          '-hls_segment_type',
+          'fmp4',
+          '-hls_segment_options',
+          'movflags=+frag_discont',
+          '-hls_fmp4_init_filename',
+          `init-${runId}.mp4`
+        ]
+      : []),
     '-hls_playlist_type',
     'event',
     '-hls_list_size',
@@ -403,7 +439,7 @@ async function startTranscodeRun(
     '-start_number',
     String(startSegment),
     '-hls_segment_filename',
-    join(session.dir, 'seg%05d.ts'),
+    join(session.dir, `seg%05d.${segmentExt(session)}`),
     join(session.dir, playlist)
   ]
   const run = spawnRun(deps, session, startSegment, playlist, args)
@@ -595,7 +631,7 @@ function startRemuxRun(deps: HlsDeps, session: Session, startSegment: number): v
     if (session.run !== run || run.exited) return
     refreshPieces(session)
     const head = runHead(session)
-    const ahead = head >= 0 ? session.starts[head] - session.starts[remux.lastRequested] : 0
+    const ahead = head >= 0 ? session.starts[head] - session.starts[session.lastRequested] : 0
     if (ahead > REMUX_AHEAD_SECONDS) {
       deps.log(`HLS RUN PAUSED session=${session.id} ready to ${session.starts[head]}s`)
       killRun(session)
@@ -657,7 +693,7 @@ function pruneBehind(session: Session, index: number): void {
   for (const done of [...session.completed]) {
     if (session.starts[done] < cutoff) {
       session.completed.delete(done)
-      rmSync(join(session.dir, segmentName(done, 'ts')), { force: true })
+      rmSync(join(session.dir, segmentName(done, segmentExt(session))), { force: true })
     }
   }
 }
@@ -687,16 +723,24 @@ async function ensureSegment(deps: HlsDeps, session: Session, index: number): Pr
 // The fragmented-MP4 header every remuxed segment needs. Each run writes
 // its own copy; they're identical, so any one will do.
 async function ensureInit(deps: HlsDeps, session: Session): Promise<string | null> {
+  // ffmpeg writes the init file while encoding the first segment, so it's
+  // only known to be whole once its run has listed a segment — serving it
+  // any earlier can hand the player a half-written header (no picture).
   const find = (): string | null => {
-    const name = readdirSync(session.dir).find((f) => /^init-.*\.mp4$/.test(f))
-    return name ? join(session.dir, name) : null
+    for (const name of readdirSync(session.dir)) {
+      const m = /^init-(.*)\.mp4$/.exec(name)
+      if (!m) continue
+      const runPlaylist = readText(join(session.dir, `run-${m[1]}.m3u8`))
+      if (runPlaylist?.includes('#EXTINF')) return join(session.dir, name)
+    }
+    return null
   }
   const deadline = Date.now() + SEGMENT_WAIT_MS
   while (Date.now() < deadline) {
     const found = find()
     if (found) return found
     if (!session.run || session.run.exited) {
-      await startRun(deps, session, session.remux?.lastRequested ?? 0)
+      await startRun(deps, session, session.lastRequested)
     }
     await new Promise((r) => setTimeout(r, 150))
   }
@@ -745,8 +789,7 @@ async function createSession(
       videoCodec: probe.videoCodec,
       audioChannels: probe.audioChannels,
       pieces: new Map(),
-      endReached: false,
-      lastRequested: 0
+      endReached: false
     }
   } else {
     starts = Array.from({ length: segmentCount(duration) }, (_, i) => i * SEGMENT_SECONDS)
@@ -772,6 +815,7 @@ async function createSession(
     completed: new Set(),
     remux,
     lastAccess: Date.now(),
+    lastRequested: 0,
     stats: { speed: null, fps: null }
   }
   sessions.set(id, session)
@@ -835,7 +879,11 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
             `${base}/init.mp4${suffix}`,
             (i) => `${base}/${segmentName(i, 'm4s')}${suffix}`
           )
-        : vodPlaylist(session.durationSeconds, (i) => `${base}/${segmentName(i, 'ts')}${suffix}`)
+        : vodPlaylist(
+            session.durationSeconds,
+            (i) => `${base}/${segmentName(i, segmentExt(session!))}${suffix}`,
+            usesFmp4(session) ? `${base}/init.mp4${suffix}` : undefined
+          )
     )
   })
 
@@ -851,7 +899,7 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
     }
     session.lastAccess = Date.now()
 
-    if (req.params.file === 'init.mp4' && session.remux) {
+    if (req.params.file === 'init.mp4' && usesFmp4(session)) {
       const init = await ensureInit(deps, session)
       if (!init) {
         res.status(503).end()
@@ -863,11 +911,11 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
 
     const m = SEGMENT_NAME.exec(req.params.file)
     const index = m ? parseInt(m[1], 10) : -1
-    if (!m || index >= session.starts.length || (m[2] === 'm4s') !== (session.remux !== null)) {
+    if (!m || index >= session.starts.length || m[2] !== segmentExt(session)) {
       res.status(404).end()
       return
     }
-    if (session.remux) session.remux.lastRequested = index
+    session.lastRequested = index
     if (!(await ensureSegment(deps, session, index))) {
       res.status(503).end()
       return
@@ -879,8 +927,8 @@ export function registerHlsRoutes(app: express.Express, deps: HlsDeps): void {
       await sendFiles(res, files, 'video/mp4')
       return
     }
-    res.setHeader('Content-Type', 'video/mp2t')
-    res.sendFile(join(session.dir, segmentName(index, 'ts')))
+    res.setHeader('Content-Type', usesFmp4(session) ? 'video/mp4' : 'video/mp2t')
+    res.sendFile(join(session.dir, segmentName(index, segmentExt(session))))
   })
 }
 

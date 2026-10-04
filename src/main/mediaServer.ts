@@ -22,6 +22,7 @@ import {
 } from './hls'
 import {
   attributeRequest,
+  committedRemoteKbps,
   noteHeartbeat,
   notePlaybackDecision,
   onStreamStopped,
@@ -279,6 +280,15 @@ function labelCodecs(): void {
   })
 }
 
+// The upload (kbps) a new stream for this owner can use: the upload speed
+// the admin entered, less 10% and less what other remote streams are
+// expected to take. null when no upload speed is set (no limit).
+function spareUploadKbps(ownerKey: string): number | null {
+  const capacity = parseFloat(getSetting('uploadCapacityMbps') ?? '')
+  if (!Number.isFinite(capacity) || capacity <= 0) return null
+  return Math.max(0, capacity * 1000 * 0.9 - committedRemoteKbps(ownerKey))
+}
+
 export function stopDashboardStream(key: string, message: string): boolean {
   return stopStream(key, message)
 }
@@ -454,7 +464,7 @@ function streamDirect(req: express.Request, res: express.Response, filePath: str
   createReadStream(filePath, { start, end }).pipe(res)
 }
 
-type HardwareEncoder = 'h264_nvenc' | 'h264_qsv' | 'h264_amf'
+type HardwareEncoder = 'h264_nvenc' | 'h264_qsv' | 'h264_amf' | 'h264_videotoolbox'
 
 // Quality presets, one tier up from the previous speed-first defaults.
 // Benchmarked on this host (AMD Radeon RX Vega, h264_amf) with a synthetic
@@ -469,10 +479,24 @@ type HardwareEncoder = 'h264_nvenc' | 'h264_qsv' | 'h264_amf'
 const HARDWARE_ENCODER_ARGS: Record<HardwareEncoder, string[]> = {
   h264_nvenc: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'll'],
   h264_qsv: ['-c:v', 'h264_qsv', '-preset', 'fast'],
-  h264_amf: ['-c:v', 'h264_amf', '-quality', 'balanced']
+  h264_amf: ['-c:v', 'h264_amf', '-quality', 'balanced'],
+  // Apple's hardware encoder, for a Mac running as the server.
+  h264_videotoolbox: ['-c:v', 'h264_videotoolbox', '-allow_sw', '0']
 }
 
-function probeEncoder(codec: HardwareEncoder): Promise<boolean> {
+// HEVC output for devices that play it: the same picture at about 60% of
+// the H.264 bitrate. Only with a hardware HEVC encoder — software x265 is
+// too slow to keep up on a typical server CPU.
+type HevcEncoder = 'hevc_nvenc' | 'hevc_qsv' | 'hevc_amf' | 'hevc_videotoolbox'
+
+const HEVC_ENCODER_ARGS: Record<HevcEncoder, string[]> = {
+  hevc_nvenc: ['-c:v', 'hevc_nvenc', '-preset', 'p5'],
+  hevc_qsv: ['-c:v', 'hevc_qsv', '-preset', 'fast'],
+  hevc_amf: ['-c:v', 'hevc_amf', '-quality', 'balanced', '-rc', 'vbr_peak'],
+  hevc_videotoolbox: ['-c:v', 'hevc_videotoolbox', '-allow_sw', '0']
+}
+
+function probeEncoder(codec: HardwareEncoder | HevcEncoder): Promise<boolean> {
   return new Promise((resolveProbe) => {
     let settled = false
     const finish = (ok: boolean): void => {
@@ -486,7 +510,8 @@ function probeEncoder(codec: HardwareEncoder): Promise<boolean> {
         '-f',
         'lavfi',
         '-i',
-        'color=c=black:s=64x64:d=0.5',
+        // Some hardware HEVC encoders refuse tiny pictures.
+        'color=c=black:s=256x256:d=0.5',
         '-c:v',
         codec,
         '-frames:v',
@@ -516,7 +541,7 @@ let hardwareEncoderPromise: Promise<HardwareEncoder | null> | null = null
 function detectHardwareEncoder(): Promise<HardwareEncoder | null> {
   if (!hardwareEncoderPromise) {
     hardwareEncoderPromise = (async () => {
-      for (const codec of ['h264_nvenc', 'h264_qsv', 'h264_amf'] as const) {
+      for (const codec of ['h264_nvenc', 'h264_qsv', 'h264_amf', 'h264_videotoolbox'] as const) {
         try {
           if (await probeEncoder(codec)) {
             logTranscode(`Hardware encoder available: ${codec}`)
@@ -531,6 +556,28 @@ function detectHardwareEncoder(): Promise<HardwareEncoder | null> {
     })()
   }
   return hardwareEncoderPromise
+}
+
+let hevcEncoderPromise: Promise<HevcEncoder | null> | null = null
+
+function detectHevcEncoder(): Promise<HevcEncoder | null> {
+  if (!hevcEncoderPromise) {
+    hevcEncoderPromise = (async () => {
+      for (const codec of ['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'hevc_videotoolbox'] as const) {
+        try {
+          if (await probeEncoder(codec)) {
+            logTranscode(`Hardware HEVC encoder available: ${codec}`)
+            return codec
+          }
+        } catch {
+          /* try next candidate */
+        }
+      }
+      logTranscode('No hardware HEVC encoder — conversions are H.264 only.')
+      return null
+    })()
+  }
+  return hevcEncoderPromise
 }
 
 // Hardware *decoding* of the source (D3D11VA on Windows — the Vega 56 —,
@@ -602,7 +649,11 @@ function hlsRateArgs(rung: TranscodeRung): string[] {
 // 4-second boundaries so the VOD playlist's timeline is true, and copying
 // can only cut where the source happens to have keyframes. (Playing the
 // original untouched is the remux path in hls.ts.)
-async function hlsVideoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<string[]> {
+async function hlsVideoArgs(
+  rung: TranscodeRung,
+  probe: MediaProbe,
+  codec: 'h264' | 'hevc'
+): Promise<string[]> {
   const encoder = await detectHardwareEncoder()
   const rate = hlsRateArgs(rung)
   // Scale down first (never up), keeping the shape, so HDR tone mapping
@@ -612,6 +663,11 @@ async function hlsVideoArgs(rung: TranscodeRung, probe: MediaProbe): Promise<str
   const toneMap = toneMapFilters(probe)
   const filters = [`scale=w='min(${maxWidth},iw)':h=-2`, ...toneMap, 'format=yuv420p']
   const scale = ['-vf', filters.join(','), ...(toneMap.length ? SDR_COLOR_TAGS : [])]
+  if (codec === 'hevc') {
+    const hevc = await detectHevcEncoder()
+    // Apple players only accept HEVC tagged hvc1.
+    if (hevc) return [...scale, ...HEVC_ENCODER_ARGS[hevc], '-tag:v', 'hvc1', ...rate]
+  }
   if (!encoder) {
     const peak = Math.round(rung.kbps * 1.25)
     return [
@@ -1379,22 +1435,31 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     const avoid = (typeof req.query.avoid === 'string' ? req.query.avoid.split(',') : []).filter(
       (m): m is PlaybackMethod => m === 'direct' || m === 'remux' || m === 'transcode'
     )
-    const bandwidthKbps = bandwidthFor(res, req.query)
+    const deviceKbps = bandwidthFor(res, req.query)
+    // What's left of the server's upload after the other remote streams:
+    // a new stream gets a lower quality rather than making everyone buffer.
+    const spareKbps =
+      req.socket.localPort === remotePort ? spareUploadKbps(ownerKeyOf(res)) : null
+    const serverLimited = spareKbps !== null && (deviceKbps === null || spareKbps < deviceKbps)
+    const bandwidthKbps = serverLimited ? spareKbps : deviceKbps
     const decision = decidePlayback({
       probe,
       extension: extname(filePath),
       caps: capsFromQuery(req.query),
       bandwidthKbps,
+      bandwidthIsServerUpload: serverLimited,
       quality,
       canRemux: (await fileKeyframes(filePath)) !== null,
-      avoid
+      avoid,
+      hevcEncode: (await detectHevcEncoder()) !== null
     })
     const path =
       decision.method === 'direct'
         ? `/stream/${mediaType}/${id}?direct=1`
         : decision.method === 'remux'
           ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio}`
-          : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}&audio=${decision.audio}`
+          : `/hls/${mediaType}/${id}/index.m3u8?h=${decision.rung!.height}` +
+            `&audio=${decision.audio}&codec=${decision.codec}`
     logTranscode(
       `PLAYBACK ${mediaType}/${id} method=${decision.method} bandwidthKbps=${bandwidthKbps ?? 'unknown'} quality=${quality} avoid=${avoid.join(',') || 'none'} — ${decision.reason}`
     )
@@ -1406,7 +1471,11 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
         parseInt(id, 10),
         decision.method,
         decision.reason,
-        probe.durationSeconds
+        probe.durationSeconds,
+        // Roughly what it will take from the upload (video + audio).
+        decision.method === 'transcode'
+          ? decision.rung!.kbps + 640
+          : (probe.bitRateKbps ?? null)
       )
     }
     res.json({
@@ -1519,6 +1588,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   // the probe's latency (it awaits the same cached promise, already
   // resolved by the time anyone's actually pressed play).
   void detectHardwareEncoder()
+  void detectHevcEncoder()
   void detectHardwareDecoder()
   labelCodecs()
   // Channels pick up anything added while MartBox was closed.

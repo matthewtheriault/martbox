@@ -123,6 +123,23 @@ describe('decidePlayback', () => {
     expect(dts.audio).toBe('convert')
   })
 
+  it('converts to HEVC for devices that play it, when the server can encode it', () => {
+    const hevc = decidePlayback(input({ quality: '720', hevcEncode: true }))
+    expect(hevc.codec).toBe('hevc')
+    expect(hevc.rung).toEqual({ height: 720, kbps: 2400 })
+    expect(decidePlayback(input({ quality: '720', hevcEncode: false })).codec).toBe('h264')
+    expect(decidePlayback(input({ quality: '720', hevcEncode: true, caps: OLD_DEVICE })).codec).toBe('h264')
+    // HEVC's lower bitrate fits a slower connection at a bigger size.
+    expect(decidePlayback(input({ bandwidthKbps: 7500, hevcEncode: true })).rung?.height).toBe(1080)
+    expect(decidePlayback(input({ bandwidthKbps: 7500, hevcEncode: false })).rung?.height).toBe(720)
+  })
+
+  it('says when the server upload is the limit', () => {
+    const d = decidePlayback(input({ bandwidthKbps: 9000, bandwidthIsServerUpload: true }))
+    expect(d.method).toBe('transcode')
+    expect(d.reason).toContain('upload the server has spare')
+  })
+
   it('never converts up', () => {
     const p = probe({ videoCodec: 'mpeg4', height: 480, width: 640, bitDepth: 8, hdr: null })
     expect(decidePlayback(input({ probe: p })).rung?.height).toBe(480)
