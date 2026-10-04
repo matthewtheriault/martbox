@@ -909,8 +909,13 @@ button {
 
 .detail-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.8rem;
   margin-top: 1.3rem;
+}
+
+.detail-actions > * {
+  white-space: nowrap;
 }
 
 .cast-crew {
