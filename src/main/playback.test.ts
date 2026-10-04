@@ -115,6 +115,14 @@ describe('decidePlayback', () => {
     expect(decidePlayback(input({ probe: probe({ videoCodec: 'av1' }) })).method).toBe('transcode')
   })
 
+  it('keeps the original audio when converting the picture, if the device plays it', () => {
+    const slow = decidePlayback(input({ bandwidthKbps: 7000 }))
+    expect(slow.method).toBe('transcode')
+    expect(slow.audio).toBe('copy')
+    const dts = decidePlayback(input({ bandwidthKbps: 7000, probe: probe({ audioCodec: 'dts' }) }))
+    expect(dts.audio).toBe('convert')
+  })
+
   it('never converts up', () => {
     const p = probe({ videoCodec: 'mpeg4', height: 480, width: 640, bitDepth: 8, hdr: null })
     expect(decidePlayback(input({ probe: p })).rung?.height).toBe(480)

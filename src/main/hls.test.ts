@@ -87,9 +87,9 @@ describe('variantFromQuery', () => {
   it('reads remux and transcode requests, defaulting to a 1080p transcode', () => {
     expect(variantFromQuery({ mode: 'remux' })).toEqual({ kind: 'remux', audio: 'copy' })
     expect(variantFromQuery({ mode: 'remux', audio: 'convert' })).toEqual({ kind: 'remux', audio: 'convert' })
-    expect(variantFromQuery({ h: '720' })).toEqual({ kind: 'transcode', rung: { height: 720, kbps: 4000 } })
-    expect(variantFromQuery({})).toEqual({ kind: 'transcode', rung: { height: 1080, kbps: 8000 } })
-    expect(variantFromQuery({ h: '9999' })).toEqual({ kind: 'transcode', rung: { height: 1080, kbps: 8000 } })
-    expect(variantKey(variantFromQuery({ h: '480' }))).toBe('transcode:480:1500')
+    expect(variantFromQuery({ h: '720', audio: 'copy' })).toEqual({ kind: 'transcode', rung: { height: 720, kbps: 4000 }, audio: 'copy' })
+    expect(variantFromQuery({})).toEqual({ kind: 'transcode', rung: { height: 1080, kbps: 8000 }, audio: 'stereo' })
+    expect(variantFromQuery({ h: '9999' })).toEqual({ kind: 'transcode', rung: { height: 1080, kbps: 8000 }, audio: 'stereo' })
+    expect(variantKey(variantFromQuery({ h: '480', audio: 'convert' }))).toBe('transcode:480:1500:convert')
   })
 })
