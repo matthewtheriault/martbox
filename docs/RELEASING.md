@@ -37,7 +37,17 @@ Schema changes go through the additive migrations in `src/main/db.ts`.
    This builds both architectures and uploads the `.dmg`s, the `.zip`s
    (what the updater installs), their `.blockmap`s and `latest-mac.yml`.
    Until it runs, Mac installs simply see no update.
-5. **Write release notes** on the GitHub release — they show up in
+5. **Attach the Android app** (Fire TV and Android phones). The app lives in
+   a separate private repository; its version matches the release. From
+   that checkout, with its signing key in `keystore.properties`:
+   ```sh
+   ./gradlew assembleRelease
+   gh release upload v0.2.0 app/build/outputs/apk/release/app-release.apk#MartBox-0.2.0.apk \
+     --repo matthewtheriault/martbox
+   ```
+   Keep the signing key safe and backed up: an update signed with a
+   different key won't install over the existing app.
+6. **Write release notes** on the GitHub release — they show up in
    Settings → App Updates while an update downloads.
 
 Run `npm run check:sensitive` before tagging; CI also runs it.

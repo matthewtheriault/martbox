@@ -262,6 +262,17 @@ same codebase.
 - Instant reconnect on foreground.
 - Signed APK + sideload steps (Fire TV via the Downloader app); Play Store
   optional ($25 one-time).
+- **Built** (server 0.12.0, app 0.12.0): one Android app with a TV layout
+  (Compose for TV, D-pad focus) and a phone layout (Material 3, bottom
+  tabs). Sign-in by invite (pasted, or scanned as a QR code on phones),
+  profiles with PIN, Home, Movies, TV Shows, detail pages, Search, Live
+  Channels, Requests, the accent picker, and the admin Dashboard on phones.
+  Playback reads the device's HEVC/HDR/surround support. The Tailscale
+  bridge needed two Android fixes (interface list, log folder). The signed
+  APK is attached to each release; install steps in `docs/ANDROID.md`.
+  Still to do: try it on a real Fire TV stick and a real phone; reconnect
+  the tunnel when the app returns from the background (today it reconnects
+  on launch).
 
 **Phase 3b (optional) — MartBox Web.** For friends who'd rather use a
 browser and already run Tailscale (a browser can't join the tailnet itself).
