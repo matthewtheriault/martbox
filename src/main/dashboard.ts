@@ -57,6 +57,8 @@ interface Stream {
   state: StreamState
   method: DashboardStream['method']
   reason: string | null
+  // What the stream is expected to take from the upload.
+  expectedKbps: number | null
   startedAt: number
   lastSeen: number
   // (time, bytes) for the current rate.
@@ -103,6 +105,7 @@ function touch(owner: StreamOwner, mediaType: MediaType, mediaId: number): Strea
       state: 'playing',
       method: null,
       reason: null,
+      expectedKbps: null,
       startedAt: Date.now(),
       lastSeen: Date.now(),
       recentBytes: [],
@@ -124,12 +127,14 @@ export function notePlaybackDecision(
   method: NonNullable<DashboardStream['method']>,
   reason: string,
   // The file's real length, better than the library's rounded runtime.
-  durationSeconds: number | null = null
+  durationSeconds: number | null = null,
+  expectedKbps: number | null = null
 ): void {
   const stream = touch(owner, mediaType, mediaId)
   if (!stream) return
   stream.method = method
   stream.reason = reason
+  stream.expectedKbps = expectedKbps
   if (durationSeconds && durationSeconds > 0) stream.info.durationSeconds = durationSeconds
 }
 
@@ -261,6 +266,18 @@ function tick(): void {
 }
 
 setInterval(tick, SAMPLE_INTERVAL_MS).unref()
+
+// What the other remote devices' active (not paused) streams are expected
+// to take from the upload — for fitting a new stream into what's left.
+export function committedRemoteKbps(exceptOwnerKey: string): number {
+  let total = 0
+  for (const stream of streams.values()) {
+    if (!stream.owner.key.startsWith('device:') || stream.owner.key === exceptOwnerKey) continue
+    if (stream.state === 'paused') continue
+    total += stream.expectedKbps ?? 0
+  }
+  return total
+}
 
 // ---------------------------------------------------------------------------
 // Stopping a stream

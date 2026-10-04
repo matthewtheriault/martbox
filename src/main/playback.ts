@@ -37,6 +37,16 @@ export const TRANSCODE_LADDER: TranscodeRung[] = [
   { height: 480, kbps: 1500 }
 ]
 
+// HEVC gives the same picture at about 60% of the H.264 bitrate.
+export const HEVC_BITRATE_FACTOR = 0.6
+
+export type OutputCodec = 'h264' | 'hevc'
+
+// A ladder rung at the bitrate its codec needs.
+export function rungFor(rung: TranscodeRung, codec: OutputCodec): TranscodeRung {
+  return codec === 'hevc' ? { height: rung.height, kbps: Math.round(rung.kbps * HEVC_BITRATE_FACTOR) } : rung
+}
+
 // A stream needs about half again its average rate in spare connection to
 // ride out its own peaks and the connection's dips.
 export const BANDWIDTH_HEADROOM = 1.5
@@ -45,8 +55,9 @@ export interface PlaybackDecision {
   method: PlaybackMethod
   // Remux and transcode: whether the original audio is kept or converted.
   audio?: 'copy' | 'convert'
-  // Only for transcode.
+  // Only for transcode: the size and bitrate, and the codec.
   rung?: TranscodeRung
+  codec?: OutputCodec
   // One line for the dashboard and logs.
   reason: string
 }
@@ -58,11 +69,17 @@ export interface PlaybackInput {
   // Measured speed between the server and this device; null if unknown
   // (unknown never blocks the original).
   bandwidthKbps: number | null
+  // bandwidthKbps is what's left of the server's upload (other friends are
+  // streaming), not the device's own connection.
+  bandwidthIsServerUpload?: boolean
   quality: QualityChoice
   // The MKV's keyframe index was readable — needed to remux.
   canRemux: boolean
   // Methods that already failed on this device for this file.
   avoid: PlaybackMethod[]
+  // The server has a hardware HEVC encoder, so conversions for devices
+  // that play HEVC can be HEVC.
+  hevcEncode?: boolean
 }
 
 const DIRECT_CONTAINERS = new Set(['.mp4', '.m4v', '.mov'])
@@ -97,9 +114,13 @@ function directTagOk(probe: MediaProbe): boolean {
   return probe.videoCodec !== 'hevc' || probe.videoCodecTag === 'hvc1'
 }
 
-function fitRung(bandwidthKbps: number | null, sourceHeight: number | null): TranscodeRung {
+function fitRung(
+  bandwidthKbps: number | null,
+  sourceHeight: number | null,
+  codec: OutputCodec
+): TranscodeRung {
   const fits = TRANSCODE_LADDER.filter(
-    (r) => bandwidthKbps === null || r.kbps * BANDWIDTH_HEADROOM <= bandwidthKbps
+    (r) => bandwidthKbps === null || rungFor(r, codec).kbps * BANDWIDTH_HEADROOM <= bandwidthKbps
   )
   const rung = fits[0] ?? TRANSCODE_LADDER[TRANSCODE_LADDER.length - 1]
   // Never "convert up": a 720p source stays 720p at most.
@@ -113,10 +134,13 @@ function fitRung(bandwidthKbps: number | null, sourceHeight: number | null): Tra
 // Only the picture is converted: the original audio is kept whenever the
 // device plays it (it's the audio's own quality, and costs nothing).
 function transcode(input: PlaybackInput, why: string, rung?: TranscodeRung): PlaybackDecision {
-  const chosen = rung ?? fitRung(input.bandwidthKbps, input.probe.height)
+  const codec: OutputCodec =
+    input.hevcEncode && input.caps.videoCodecs.includes('hevc') ? 'hevc' : 'h264'
+  const chosen = rungFor(rung ?? fitRung(input.bandwidthKbps, input.probe.height, codec), codec)
   return {
     method: 'transcode',
     rung: chosen,
+    codec,
     audio: audioDecodable(input.probe, input.caps) ? 'copy' : 'convert',
     reason: `Converting to ${chosen.height}p: ${why}`
   }
@@ -140,8 +164,10 @@ export function decidePlayback(input: PlaybackInput): PlaybackDecision {
     if (probe.bitRateKbps * BANDWIDTH_HEADROOM > bandwidthKbps) {
       return transcode(
         input,
-        `the original (${Math.round(probe.bitRateKbps / 1000)} Mbps) needs more than this ` +
-          `connection's ${Math.round(bandwidthKbps / 1000)} Mbps`
+        `the original (${Math.round(probe.bitRateKbps / 1000)} Mbps) needs more than ` +
+          (input.bandwidthIsServerUpload
+            ? `the ${Math.round(bandwidthKbps / 1000)} Mbps of upload the server has spare`
+            : `this connection's ${Math.round(bandwidthKbps / 1000)} Mbps`)
       )
     }
   }
