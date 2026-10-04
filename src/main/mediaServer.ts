@@ -920,6 +920,9 @@ function canActAsProfile(res: express.Response, profileId: number, pin: string |
 
 const GUIDE_MAX_MS = 12 * 60 * 60 * 1000
 
+// The accent presets in design/tokens.json.
+const ACCENTS = ['blue', 'purple', 'pink', 'orange', 'green']
+
 function registerChannelRoutes(app: express.Express): void {
   // Every channel's programs between from and to (Unix ms; default: the
   // last half hour to three hours ahead).
@@ -1362,6 +1365,29 @@ function registerMetadataApi(app: express.Express): void {
     res.json(getAllActivity())
   })
 
+  // Each person's accent colour (Settings → Appearance), kept here so it
+  // follows them to every device they sign in on.
+  app.get('/api/appearance', (req, res) => {
+    const profileId = parseInt(req.query.profileId as string, 10)
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
+      res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
+      return
+    }
+    res.json({ accent: getSetting(`accent:${profileId}`) ?? null })
+  })
+  app.post('/api/appearance', json, (req, res) => {
+    const { profileId, pin, accent } = req.body ?? {}
+    if (!canActAsProfile(res, profileId, pin)) {
+      res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
+      return
+    }
+    if (!ACCENTS.includes(accent)) {
+      res.status(400).json({ error: 'Unknown accent' })
+      return
+    }
+    setSetting(`accent:${profileId}`, accent)
+    res.json({ ok: true })
+  })
   app.get('/api/watchlist', (req, res) => {
     const profileId = parseInt(req.query.profileId as string, 10)
     if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
