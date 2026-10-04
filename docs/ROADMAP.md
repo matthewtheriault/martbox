@@ -235,6 +235,16 @@ IPTV sources (the old Live TV proxy stays removed). Done when a friend opens the
 and corner rules are written down as design tokens and shown on one sample
 screen. No restyling of existing screens yet — it means the Fire TV app and
 everything after it are built in the new style from the start.
+- **Done** (2026-10-03): `design/tokens.json` + `docs/DESIGN.md`, and the
+  design system page with a sample Home screen. Black base; the accent is
+  a gradient the viewer picks from five presets (Blue default, Purple,
+  Pink, Orange, Green), each with black labels on it so all pass
+  contrast; 11 desktop and 8 TV text styles; a 4px spacing scale; five
+  radii.
+- Accent choice: Settings → Appearance, saved per profile on the server
+  so it follows the person. Fire TV ships with it; desktop, iPhone and
+  Apple TV get it when they move to the new style.
+- Open: the app icon is still the purple cube.
 
 **Phase 3 — Fire TV + Android.** Done when a friend on a Fire TV stick, then
 on an Android phone, signs in with a code and streams remotely. Fire TV
