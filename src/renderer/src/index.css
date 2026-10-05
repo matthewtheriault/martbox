@@ -4271,3 +4271,337 @@ button {
   right: 0;
   min-width: 170px;
 }
+
+/* Books and comics: library */
+.reading-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.reading-cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.reading-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.reading-cover.large {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.reading-cover-made {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-start) 26%, var(--surface)), var(--surface));
+}
+
+.reading-cover-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.reading-cover-author {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.music-album-card:hover .reading-cover,
+.music-album-card:focus-visible .reading-cover {
+  transform: translateY(-3px);
+}
+
+.reading-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.reading-sort {
+  width: auto;
+  margin-bottom: 1.2rem;
+}
+
+/* Reader: full-screen */
+.reader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0b0b0e;
+  color: #e6e6ea;
+  z-index: 100;
+}
+
+.reader-loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-top,
+.reader-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 1rem;
+  flex-shrink: 0;
+}
+
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  text-align: center;
+}
+
+.reader-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.reader-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.reader-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.reader-btn.active {
+  background: var(--accent-gradient);
+  color: var(--accent-ink, #000);
+}
+
+.reader-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+
+.reader-swatch.active {
+  border-color: var(--accent-start);
+}
+
+.swatch-light {
+  background: #ffffff;
+}
+
+.swatch-sepia {
+  background: #f4ecd8;
+}
+
+.swatch-dark {
+  background: #121216;
+}
+
+.reader-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.reader-stage.scroll {
+  overflow: auto;
+  align-items: flex-start;
+}
+
+.reader-turn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14%;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.reader-turn.left {
+  left: 0;
+}
+
+.reader-turn.right {
+  right: 0;
+}
+
+.reader-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.reader-epub-host {
+  width: min(1200px, 100% - 7rem);
+  height: 100%;
+}
+
+.reader-epub.reader-light {
+  background: #ffffff;
+  color: #1b1b1f;
+}
+
+.reader-epub.reader-sepia {
+  background: #f4ecd8;
+  color: #433422;
+}
+
+.reader-epub.reader-light .reader-btn,
+.reader-epub.reader-sepia .reader-btn {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.reader-toc {
+  position: absolute;
+  top: 3.2rem;
+  right: 1rem;
+  z-index: 5;
+  max-height: 70vh;
+  overflow: auto;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 0.4rem;
+}
+
+.reader-toc button {
+  background: none;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reader-toc button:hover {
+  background: var(--surface-hover);
+}
+
+.reader-chapter {
+  min-width: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.reader-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.3);
+  overflow: hidden;
+}
+
+.reader-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent-gradient);
+}
+
+.reader-pct {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  min-width: 3.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-slider {
+  flex: 1;
+  accent-color: var(--accent-start);
+}
+
+.reader-slider.rtl {
+  direction: rtl;
+}
+
+.reader-pdf-page {
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.reader-stage.scroll .reader-pdf-page {
+  margin: 12px auto;
+}
+
+.reader-comic-pages {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  gap: 2px;
+}
+
+.reader-comic-pages.rtl {
+  flex-direction: row-reverse;
+}
+
+.reader-comic-pages.fit img {
+  max-height: 100%;
+  max-width: calc(50vw * 1.9);
+  object-fit: contain;
+}
+
+.reader-comic-pages.fit {
+  align-items: center;
+}
+
+.reader-comic-pages.width {
+  height: auto;
+  width: 100%;
+}
+
+.reader-comic-pages.width img {
+  max-width: 100%;
+  height: auto;
+}
+
+.reading-card {
+  width: 100%;
+}

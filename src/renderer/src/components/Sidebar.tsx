@@ -10,6 +10,12 @@ const icons = {
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </>
   ),
+  books: (
+    <>
+      <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" />
+      <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" />
+    </>
+  ),
   music: (
     <>
       <path d="M9 18V5l12-2v13" />
@@ -157,6 +163,10 @@ export default function Sidebar(): JSX.Element {
         <NavLink to="/audiobooks" className="sidebar-link">
           <Icon name="book" />
           <span>Audiobooks</span>
+        </NavLink>
+        <NavLink to="/books" className="sidebar-link">
+          <Icon name="books" />
+          <span>Books</span>
         </NavLink>
         <NavLink to="/collections" className="sidebar-link">
           <Icon name="collections" />
