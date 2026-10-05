@@ -106,7 +106,7 @@ export default function NowPlayingBar(): JSX.Element | null {
           <span className="now-playing-time">
             {formatTime(music.positionSeconds)} / {formatTime(duration)}
           </span>
-          {music.format === 'original' && track.lossless && <span className="music-badge">Lossless</span>}
+          {(music.format === 'alac' || (music.format === 'original' && track.lossless)) && <span className="music-badge">Lossless</span>}
           <input
             type="range"
             min={0}

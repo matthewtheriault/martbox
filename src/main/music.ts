@@ -349,7 +349,7 @@ export function albumCoverPath(id: number): string | null {
 
 export const AAC_KBPS = 256
 const CACHE_LIMIT_BYTES = 4 * 1024 ** 3
-const converting = new Map<number, Promise<string | null>>()
+const converting = new Map<string, Promise<string | null>>()
 
 export function trackFile(id: number): { path: string; codec: string | null; bitrateKbps: number | null } | null {
   const row = db.prepare('SELECT file_path, codec, bitrate_kbps FROM music_tracks WHERE id = ?').get(id) as
@@ -362,9 +362,20 @@ export function trackFile(id: number): { path: string; codec: string | null; bit
 // into the file, so players can join tracks without a gap, and it's
 // seekable. Cached, oldest dropped past CACHE_LIMIT_BYTES.
 export function aacCopy(id: number): Promise<string | null> {
+  return convertedCopy(id, 'aac')
+}
+
+// Lossless for Apple devices: their player streams ALAC but not FLAC, so
+// FLAC (and other lossless) becomes ALAC in M4A — the same audio, bit for
+// bit.
+export function alacCopy(id: number): Promise<string | null> {
+  return convertedCopy(id, 'alac')
+}
+
+function convertedCopy(id: number, kind: 'aac' | 'alac'): Promise<string | null> {
   const src = trackFile(id)
   if (!src) return Promise.resolve(null)
-  const out = join(userDir('music-cache'), `${id}-aac${AAC_KBPS}.m4a`)
+  const out = join(userDir('music-cache'), kind === 'aac' ? `${id}-aac${AAC_KBPS}.m4a` : `${id}-alac.m4a`)
   if (existsSync(out)) {
     const now = new Date()
     try {
@@ -374,13 +385,15 @@ export function aacCopy(id: number): Promise<string | null> {
     }
     return Promise.resolve(out)
   }
-  const pending = converting.get(id)
+  const key = `${id}:${kind}`
+  const pending = converting.get(key)
   if (pending) return pending
   const job = new Promise<string | null>((resolve) => {
     const tmp = `${out}.part`
     const p = spawn(ffmpegPath, [
       '-v', 'error', '-y', '-i', src.path, '-vn', '-map', '0:a:0',
-      '-c:a', 'aac', '-b:a', `${AAC_KBPS}k`, '-movflags', '+faststart', '-f', 'mp4', tmp
+      ...(kind === 'aac' ? ['-c:a', 'aac', '-b:a', `${AAC_KBPS}k`] : ['-c:a', 'alac']),
+      '-movflags', '+faststart', '-f', 'mp4', tmp
     ])
     p.on('error', () => resolve(null))
     p.on('close', (code) => {
@@ -393,8 +406,8 @@ export function aacCopy(id: number): Promise<string | null> {
         resolve(null)
       }
     })
-  }).finally(() => converting.delete(id))
-  converting.set(id, job)
+  }).finally(() => converting.delete(key))
+  converting.set(key, job)
   return job
 }
 
@@ -414,18 +427,21 @@ function trimCache(): void {
   }
 }
 
-// Original or AAC: the original when the device plays its codec and (away
-// from home) the connection carries it.
+export type MusicFormat = 'original' | 'alac' | 'aac'
+
+// The original when the device plays its codec, lossless ALAC when it
+// doesn't but plays ALAC (Apple devices and FLAC), else AAC — and AAC
+// whenever, away from home, the connection can't carry lossless.
 export function chooseFormat(
   track: { codec: string | null; bitrateKbps: number | null },
   accepts: string[],
   bandwidthKbps: number | null
-): 'original' | 'aac' {
-  const codec = track.codec === 'alac' ? 'alac' : (track.codec ?? '')
-  const playable = accepts.includes(codec) || (codec.startsWith('pcm_') && accepts.includes('wav'))
-  if (!playable) return 'aac'
+): MusicFormat {
+  const codec = track.codec ?? ''
   if (bandwidthKbps && track.bitrateKbps && track.bitrateKbps * 1.3 > bandwidthKbps) return 'aac'
-  return 'original'
+  if (accepts.includes(codec) || (codec.startsWith('pcm_') && accepts.includes('wav'))) return 'original'
+  if (LOSSLESS_CODECS.has(codec) && accepts.includes('alac')) return 'alac'
+  return 'aac'
 }
 
 // --- HTTP (mediaServer.ts registers these)
@@ -460,13 +476,14 @@ export function registerMusicRoutes(app: Express, isRemote: (req: Request) => bo
   // How a track will play for this device: `accepts` lists the codecs it
   // decodes (flac, alac, mp3, aac, opus, vorbis, wav); away from home the
   // connection's speed counts too.
-  const decide = (req: Request): { format: 'original' | 'aac'; track: MusicTrack } | null => {
+  const decide = (req: Request): { format: MusicFormat; track: MusicTrack } | null => {
     const track = getTrack(id(req))
     const file = trackFile(id(req))
     if (!track || !file) return null
     const accepts = String(req.query.accepts ?? 'mp3,aac').split(',').map((s) => s.trim())
     const kbps = parseFloat(req.query.bandwidthKbps as string)
-    const asked = req.query.format === 'aac' ? 'aac' : req.query.format === 'original' ? 'original' : null
+    const f = req.query.format
+    const asked: MusicFormat | null = f === 'aac' || f === 'alac' || f === 'original' ? f : null
     const format =
       asked ?? chooseFormat(file, accepts, isRemote(req) && Number.isFinite(kbps) ? kbps : null)
     return { format, track }
@@ -481,7 +498,7 @@ export function registerMusicRoutes(app: Express, isRemote: (req: Request) => bo
     query.set('format', d.format)
     res.json({
       format: d.format,
-      lossless: d.format === 'original' && d.track.lossless,
+      lossless: d.format === 'alac' || (d.format === 'original' && d.track.lossless),
       path: `/api/music/tracks/${d.track.id}/stream?${query.toString()}`
     })
   })
@@ -492,7 +509,8 @@ export function registerMusicRoutes(app: Express, isRemote: (req: Request) => bo
       res.status(404).end()
       return
     }
-    const path = d.format === 'original' ? file.path : await aacCopy(d.track.id)
+    const path =
+      d.format === 'original' ? file.path : d.format === 'alac' ? await alacCopy(d.track.id) : await aacCopy(d.track.id)
     if (!path) {
       res.status(500).json({ error: "Couldn't convert this track" })
       return

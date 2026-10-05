@@ -19,7 +19,7 @@ export interface MusicState {
   volume: number
   error: string | null
   // How the current track is being sent (lossless original or AAC).
-  format: 'original' | 'aac' | null
+  format: 'original' | 'alac' | 'aac' | null
 }
 
 type Listener = (state: MusicState) => void
@@ -27,7 +27,7 @@ type Listener = (state: MusicState) => void
 interface Loaded {
   track: MusicTrack
   buffer: AudioBuffer
-  format: 'original' | 'aac'
+  format: 'original' | 'alac' | 'aac'
 }
 
 // What this player decodes, for the server's choice of original or AAC.
