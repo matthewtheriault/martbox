@@ -48,9 +48,13 @@ function useSaver(bookId: number): Saver {
 
 export default function Reader(): JSX.Element {
   const { bookId } = useParams<{ bookId: string }>()
+  // A fresh reader per book, so one book never opens at another's place.
+  return <BookReader key={bookId} id={Number(bookId)} />
+}
+
+function BookReader({ id }: { id: number }): JSX.Element {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const id = Number(bookId)
   const book = useBooksApi<BookDetail>(`/api/books/${id}`)
   const progress = useBookProgress()
   const save = useSaver(id)
@@ -149,11 +153,14 @@ function EpubReader({ book, saved, save, close }: ReaderProps): JSX.Element {
     r.themes.select(theme)
     r.themes.fontSize(`${size}%`)
     r.on('relocated', (loc: { start: { cfi: string; href: string } }) => {
-      const pct = b.locations.length() > 0 ? b.locations.percentageFromCfi(loc.start.cfi) : 0
-      setFraction(pct)
-      save(loc.start.cfi, pct)
       const item = b.navigation?.get(loc.start.href)
       setChapter(item?.label?.trim() ?? '')
+      // Until the book's locations are counted there's no percentage;
+      // saving then would put a started book back to 0%.
+      if (b.locations.length() === 0) return
+      const pct = b.locations.percentageFromCfi(loc.start.cfi)
+      setFraction(pct)
+      save(loc.start.cfi, pct)
     })
     // Keys pressed while the page (an iframe) has focus.
     r.on('keydown', (e: KeyboardEvent) => {
@@ -172,6 +179,7 @@ function EpubReader({ book, saved, save, close }: ReaderProps): JSX.Element {
         if (!cancelled && r.location) {
           const pct = b.locations.percentageFromCfi(r.location.start.cfi)
           setFraction(pct)
+          save(r.location.start.cfi, pct)
         }
       })
       .catch((e: unknown) => {
