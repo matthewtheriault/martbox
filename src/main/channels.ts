@@ -1,5 +1,6 @@
 import { db } from './db'
 import { probeFile } from './ffprobe'
+import { genresFromDb } from './genres'
 import { getEpisode, getMovie, getShow } from './repository'
 import {
   programsBetween,
@@ -152,15 +153,7 @@ async function itemsFor(source: ChannelSource): Promise<ScheduleItem[]> {
     if (source.decade && !(m.year && m.year >= source.decade && m.year < source.decade + 10)) {
       return false
     }
-    if (source.genre) {
-      let genres: string[] = []
-      try {
-        genres = JSON.parse(m.genres ?? '[]')
-      } catch {
-        genres = []
-      }
-      if (!genres.includes(source.genre)) return false
-    }
+    if (source.genre && !genresFromDb(m.genres).includes(source.genre)) return false
     return true
   })
   for (const movie of movies) {

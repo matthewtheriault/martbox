@@ -108,12 +108,14 @@ window.addEventListener('message', (e) => { if (e.data && e.data.martboxGame ===
 
 let started = false
 
-// On-screen controls on touch screens, hidden while a controller is connected.
+// On-screen controls on touch screens, hidden while a controller is
+// connected, and never on a TV (?touch=0: TVs claim touch support anyway).
 function controllerChanged() {
   const emu = window.EJS_emulator
-  if (!emu || !emu.touch || !emu.toggleVirtualGamepad || !started) return
+  if (!emu || !emu.toggleVirtualGamepad || !started) return
   const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []
-  emu.toggleVirtualGamepad(pads.length === 0)
+  // EmulatorJS also shows them on anything it takes for a phone.
+  emu.toggleVirtualGamepad(params.get('touch') !== '0' && pads.length === 0 && (emu.touch || emu.isMobile))
 }
 window.addEventListener('gamepadconnected', controllerChanged)
 window.addEventListener('gamepaddisconnected', controllerChanged)
