@@ -47,8 +47,13 @@ export function desktopPlaybackQuery(): string {
   const video = document.createElement('video')
   const hevc = video.canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"') !== ''
   const hevc10 = video.canPlayType('video/mp4; codecs="hvc1.2.4.L120.90"') !== ''
+  // HLS (through hls.js) needs Media Source Extensions to take the same
+  // video — on some Windows GPUs HEVC plays from a file but not this way.
+  const mse = typeof MediaSource !== 'undefined'
+  const mseHevc = mse && MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L120.90"')
   const params = new URLSearchParams({
     client: 'desktop',
+    hls: mse && (!hevc || mseHevc) ? '1' : '0',
     video: hevc ? 'h264,hevc' : 'h264',
     hevc10: hevc10 ? '1' : '0',
     maxHeight: '2160',

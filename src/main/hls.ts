@@ -93,7 +93,9 @@ export type HlsVariant =
       audio: 'copy' | 'convert' | 'stereo'
       codec: OutputCodec
     }
-  | { kind: 'remux'; audio: 'copy' | 'convert' }
+  // 'aac': the desktop app's player (Chromium) plays neither AC-3 nor
+  // E-AC-3, so its audio becomes AAC (up to 5.1).
+  | { kind: 'remux'; audio: 'copy' | 'convert' | 'aac' }
 
 export function variantKey(variant: HlsVariant): string {
   return variant.kind === 'transcode'
@@ -105,7 +107,10 @@ export function variantKey(variant: HlsVariant): string {
 // before direct play) is a 1080p transcode, as it always was.
 export function variantFromQuery(query: Record<string, unknown>): HlsVariant {
   if (query.mode === 'remux') {
-    return { kind: 'remux', audio: query.audio === 'convert' ? 'convert' : 'copy' }
+    return {
+      kind: 'remux',
+      audio: query.audio === 'convert' ? 'convert' : query.audio === 'aac' ? 'aac' : 'copy'
+    }
   }
   const height = parseInt(String(query.h ?? ''), 10)
   const base = TRANSCODE_LADDER.find((r) => r.height === height) ?? TRANSCODE_LADDER[0]
@@ -576,7 +581,9 @@ function startRemuxRun(deps: HlsDeps, session: Session, startSegment: number): v
     ? ['-c:a', 'aac', '-b:a', '64k', '-ac', '2', '-shortest']
     : variant.audio === 'copy'
       ? ['-c:a', 'copy']
-      : channels > 2
+      : variant.audio === 'aac'
+        ? ['-c:a', 'aac', '-ac', String(Math.min(channels, 6)), '-b:a', channels > 2 ? '384k' : '192k']
+        : channels > 2
         ? // Surround stays surround: E-AC-3 plays on every Apple device and
           // passes through to a soundbar or receiver.
           ['-c:a', 'eac3', '-b:a', '640k', '-ac', String(Math.min(channels, 6))]
