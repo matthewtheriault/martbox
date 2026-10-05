@@ -107,6 +107,16 @@ window.player.quit = quit
 window.addEventListener('message', (e) => { if (e.data && e.data.martboxGame === 'quit') quit() })
 
 let started = false
+
+// On-screen controls on touch screens, hidden while a controller is connected.
+function controllerChanged() {
+  const emu = window.EJS_emulator
+  if (!emu || !emu.touch || !emu.toggleVirtualGamepad || !started) return
+  const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []
+  emu.toggleVirtualGamepad(pads.length === 0)
+}
+window.addEventListener('gamepadconnected', controllerChanged)
+window.addEventListener('gamepaddisconnected', controllerChanged)
 setInterval(syncSave, 15000)
 document.addEventListener('visibilitychange', () => { if (document.hidden) syncSave() })
 
@@ -145,6 +155,7 @@ window.EJS_onGameStart = async () => {
     note('Resumed where you left off')
   }
   started = true
+  controllerChanged()
 }
 
 // The menu's Save State / Load State use slot 1 on the server.
