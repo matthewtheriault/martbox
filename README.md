@@ -4,9 +4,9 @@
   <img src="build/icon.png" alt="MartBox logo" width="160" height="160" />
 </p>
 
-**MartBox is a free, private streaming service run from one person's computer.** The movies, shows, music and books
-on that computer can be watched, listened to and read on your own phone, tablet and TV, at home or away. There's no
-subscription and no ads, and nothing goes to the cloud.
+**MartBox is a self-hosted media server.** It runs on one person's computer and organizes the movies, shows, music and
+books they own, so their household and friends can watch, listen and read on their own phone, tablet and TV, at home
+or away. It's free and open source: no subscription, no ads, and nothing goes to the cloud.
 
 ## What you get
 
