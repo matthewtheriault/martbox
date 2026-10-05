@@ -4,6 +4,7 @@ import { musicPlayer } from '../lib/musicPlayer'
 import { useMusic } from '../lib/useMusic'
 import { formatTime } from '../lib/media'
 import { useProfile } from '../lib/ProfileContext'
+import { useAudioFocus } from '../lib/audioFocus'
 
 // The music player along the bottom of the app while anything is queued.
 export default function NowPlayingBar(): JSX.Element | null {
@@ -12,8 +13,10 @@ export default function NowPlayingBar(): JSX.Element | null {
   const [showQueue, setShowQueue] = useState(false)
   const { activeProfile, profilePin } = useProfile()
   useEffect(() => musicPlayer.setProfile(activeProfile.id, profilePin), [activeProfile.id, profilePin])
+  const focus = useAudioFocus()
   const track = music.queue[music.index]
-  if (!track) return null
+  // An audiobook used since takes the bar (BookPlayerBar).
+  if (!track || focus === 'book') return null
   const duration = musicPlayer.durationSeconds || track.durationSeconds
   const fraction = duration ? Math.min(1, music.positionSeconds / duration) : 0
 

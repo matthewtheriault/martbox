@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { musicPlayer } from './musicPlayer'
+import { bookPlayer } from './bookPlayer'
 
 const PortContext = createContext<number>(0)
 
@@ -9,6 +10,7 @@ export function PortProvider({ children }: { children: ReactNode }): JSX.Element
   useEffect(() => {
     window.api.media.serverPort().then((p) => {
       musicPlayer.setPort(p)
+      bookPlayer.setPort(p)
       setPort(p)
     })
   }, [])

@@ -6,6 +6,8 @@ import Sidebar from './components/Sidebar'
 import ServerVersionBanner from './components/ServerVersionBanner'
 import CommandPalette from './components/CommandPalette'
 import NowPlayingBar from './components/NowPlayingBar'
+import BookPlayerBar from './components/BookPlayerBar'
+import Audiobooks from './pages/Audiobooks'
 
 const Home = lazy(() => import('./pages/Home'))
 const Movies = lazy(() => import('./pages/Movies'))
@@ -56,6 +58,8 @@ export default function App(): JSX.Element {
                 <Route path="/collections/:id" element={<Collections />} />
                 <Route path="/year" element={<YearInReview />} />
                 <Route path="/music" element={<Music />} />
+                <Route path="/audiobooks" element={<Audiobooks />} />
+                <Route path="/audiobooks/:bookId" element={<Audiobooks />} />
                 <Route path="/music/album/:albumId" element={<Music />} />
                 <Route path="/music/artist/:artistId" element={<Music />} />
                 <Route path="/music/genre/:genre" element={<Music />} />
@@ -65,6 +69,7 @@ export default function App(): JSX.Element {
             </Suspense>
           </main>
           {!isPlayerRoute && <NowPlayingBar />}
+          {!isPlayerRoute && <BookPlayerBar />}
           <CommandPalette />
         </div>
       </ProfileProvider>

@@ -172,6 +172,10 @@ describe('media tokens', () => {
       expect(isMediaRoute(p)).toBe(true)
     }
     expect(isMediaRoute('/api/profiles/3/avatar')).toBe(true)
+    for (const p of ['/api/audiobooks/4/cover', '/api/audiobooks/4/files/0/stream']) expect(isMediaRoute(p)).toBe(true)
+    for (const p of ['/api/audiobooks', '/api/audiobooks/4', '/api/audiobooks/4/progress', '/api/audiobooks/progress']) {
+      expect(isMediaRoute(p)).toBe(false)
+    }
     for (const p of ['/api/profiles/3/avatar/delete', '/api/profiles/3', '/api/profiles/x/avatar']) {
       expect(isMediaRoute(p)).toBe(false)
     }

@@ -112,7 +112,7 @@ export interface ShowSearchResult {
 export interface Library {
   id: number
   path: string
-  type: 'movie' | 'tv' | 'music'
+  type: 'movie' | 'tv' | 'music' | 'audiobook'
   name: string
 }
 
@@ -698,4 +698,46 @@ export interface MusicListening {
   recentTracks: MusicTrack[]
   // Most played over the last 90 days.
   topTracks: MusicTrack[]
+}
+
+// Audiobooks (audiobooks.ts).
+export interface Audiobook {
+  id: number
+  title: string
+  author: string
+  narrator: string | null
+  series: string | null
+  year: number | null
+  durationSeconds: number
+  hasCover: boolean
+  addedAt: string
+}
+
+export interface AudiobookChapter {
+  title: string
+  // Seconds on the book's timeline (across all its files).
+  start: number
+  end: number
+}
+
+export interface AudiobookFile {
+  index: number
+  // Where this file starts on the book's timeline.
+  start: number
+  durationSeconds: number
+  codec: string | null
+}
+
+export interface AudiobookDetail extends Audiobook {
+  description: string | null
+  files: AudiobookFile[]
+  chapters: AudiobookChapter[]
+}
+
+// Where one person is in a book, synced across their devices.
+export interface AudiobookProgress {
+  bookId: number
+  positionSeconds: number
+  finished: boolean
+  updatedAt: string
 }

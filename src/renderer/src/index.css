@@ -4147,3 +4147,127 @@ button {
 .music-album-info h1.music-album-name[title='Rename'] {
   cursor: text;
 }
+
+/* Audiobooks */
+.book-cover {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.book-cover.large {
+  width: 240px;
+  flex-shrink: 0;
+}
+
+.book-cover-title {
+  padding: 1rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.book-cover-wrap {
+  position: relative;
+  display: block;
+}
+
+.music-album-card:hover .book-cover,
+.music-album-card:focus-visible .book-cover {
+  transform: translateY(-3px);
+}
+
+.book-card-progress {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.book-card-progress span,
+.book-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent-gradient, var(--accent-start));
+}
+
+.book-card-done {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  background: var(--accent-start);
+  color: var(--accent-ink, #000);
+}
+
+.book-byline {
+  margin: 0.2rem 0 0.4rem;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.book-narrator {
+  color: var(--text-dim);
+}
+
+.book-progress {
+  height: 4px;
+  max-width: 360px;
+  border-radius: 2px;
+  background: var(--track, rgba(255, 255, 255, 0.16));
+  overflow: hidden;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.book-description {
+  max-width: 760px;
+  color: var(--text-overview, var(--text-dim));
+  line-height: 1.55;
+  margin: 0 0 1.6rem;
+  white-space: pre-line;
+}
+
+.np-btn.np-skip {
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-width: 2.4rem;
+}
+
+.np-btn.np-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--fill-secondary, rgba(255, 255, 255, 0.08));
+  white-space: nowrap;
+}
+
+.book-menu .add-collection-menu.book-menu-up {
+  top: auto;
+  bottom: calc(100% + 0.6rem);
+  left: auto;
+  right: 0;
+  min-width: 170px;
+}
