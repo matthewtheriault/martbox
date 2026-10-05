@@ -1,7 +1,7 @@
 import ffmpegStatic from 'ffmpeg-static'
 import createMarkersWorker from './markersWorker?nodeWorker'
 import { db } from './db'
-import { activeStreamCount } from './dashboard'
+import { activeStreamCount, onStreamStarted } from './dashboard'
 import { listEpisodes } from './repository'
 import type { Markers } from './markersCore'
 import type { SeasonJob, SeasonResult } from './markersWorker'
@@ -14,6 +14,10 @@ import type { SeasonJob, SeasonResult } from './markersWorker'
 const VERSION = 1
 const ffmpegPath = (ffmpegStatic as string).replace('app.asar', 'app.asar.unpacked')
 const BUSY_RETRY_MS = 60_000
+// Reading the start of every episode is a lot of disk and CPU, so it waits
+// until nothing has played for this long, and stops when anything starts.
+const IDLE_BEFORE_MS = 10 * 60_000
+let lastPlaybackAt = Date.now()
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS episode_markers (
@@ -60,6 +64,15 @@ function save(result: SeasonResult): void {
   }
 }
 
+class Cancelled extends Error {}
+
+// Playback started: the season being analysed stops now (its ffmpeg is
+// killed) and is picked up again once things are quiet.
+onStreamStarted(() => {
+  lastPlaybackAt = Date.now()
+  if (running) worker?.postMessage({ cancel: true })
+})
+
 let worker: ReturnType<typeof createMarkersWorker> | null = null
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -71,10 +84,10 @@ function runSeason(job: SeasonJob): Promise<SeasonResult> {
   }
   const w = worker
   return new Promise((resolve, reject) => {
-    const done = (msg: { ok: boolean; result?: SeasonResult; error?: string }): void => {
+    const done = (msg: { ok: boolean; result?: SeasonResult; error?: string; cancelled?: boolean }): void => {
       w.off('error', fail)
       if (msg.ok) resolve(msg.result!)
-      else reject(new Error(msg.error))
+      else reject(msg.cancelled ? new Cancelled() : new Error(msg.error))
     }
     const fail = (err: Error): void => {
       w.off('message', done)
@@ -92,8 +105,10 @@ async function work(): Promise<void> {
   running = true
   try {
     for (;;) {
-      if (activeStreamCount() > 0) {
-        schedule(BUSY_RETRY_MS)
+      if (activeStreamCount() > 0) lastPlaybackAt = Date.now()
+      const quietFor = Date.now() - lastPlaybackAt
+      if (quietFor < IDLE_BEFORE_MS) {
+        schedule(Math.max(BUSY_RETRY_MS, IDLE_BEFORE_MS - quietFor))
         return
       }
       const pending = nextPendingSeason()
@@ -119,7 +134,11 @@ async function work(): Promise<void> {
             pending: !done.has(e.id)
           }))
         })
-      } catch {
+      } catch (err) {
+        if (err instanceof Cancelled) {
+          schedule(IDLE_BEFORE_MS)
+          return
+        }
         // A file ffmpeg can't read shouldn't hold up the rest: record the
         // season as analysed with nothing found.
         result = {

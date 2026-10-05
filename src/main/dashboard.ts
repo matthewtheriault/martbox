@@ -121,6 +121,7 @@ function touch(owner: StreamOwner, mediaType: MediaType, mediaId: number): Strea
       stallTimes: []
     }
     streams.set(key, stream)
+    for (const fn of startListeners) fn()
   }
   stream.owner = owner
   stream.lastSeen = Date.now()
@@ -344,6 +345,13 @@ let usagePeakStreams = 0
 
 // Upload sent and the most streams at once since the last call, for the
 // hourly usage stats.
+const startListeners: (() => void)[] = []
+
+// Something started playing (background jobs stand down).
+export function onStreamStarted(fn: () => void): void {
+  startListeners.push(fn)
+}
+
 // Background jobs (intro detection) wait while anything is playing.
 export function activeStreamCount(): number {
   return streams.size
