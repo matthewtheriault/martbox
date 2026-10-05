@@ -4605,3 +4605,132 @@ button {
 .reading-card {
   width: 100%;
 }
+
+/* --- Games (pages/Games.tsx) */
+
+.game-grid {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.game-card {
+  width: 100%;
+}
+
+.game-cover {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+/* Box art comes in every shape: shown whole, on the card's colour. */
+.game-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.game-cover.large {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.game-cover-made {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-start) 26%, var(--surface)), var(--surface));
+}
+
+.game-cover-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.game-cover-system {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.music-album-card:hover .game-cover,
+.music-album-card:focus-visible .game-cover {
+  transform: translateY(-3px);
+}
+
+.game-saves {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  max-width: 360px;
+}
+
+.game-saves li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.game-saves li span:first-child {
+  color: var(--text);
+}
+
+.game-saves li.game-saves-empty {
+  border: none;
+}
+
+.game-state-shot {
+  margin-top: 1rem;
+  width: 240px;
+  border-radius: var(--radius-sm);
+  image-rendering: pixelated;
+}
+
+.game-player {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 100;
+}
+
+.game-player iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.game-player-quit {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+
+.game-player-quit:hover,
+.game-player-quit:focus-visible {
+  opacity: 1;
+}

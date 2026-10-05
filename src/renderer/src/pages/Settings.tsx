@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
+  EmulatorStatus,
   AppUpdateStatus,
   Library,
   LoginCodeResult,
@@ -44,6 +45,26 @@ export default function Settings(): JSX.Element {
   const [tmdbKey, setTmdbKey] = useState('')
   const [keyStatus, setKeyStatus] = useState<'idle' | 'saving' | 'valid' | 'invalid'>('idle')
   const [scanProgress, setScanProgress] = useState<Record<number, ScanProgress>>({})
+  // Games: the emulators this server downloads (main/emulators.ts).
+  const [emulators, setEmulators] = useState<EmulatorStatus | null>(null)
+  const hasGames = libraries.some((l) => l.type === 'game')
+  useEffect(() => {
+    if (!hasGames) return
+    let live = true
+    let timer = 0
+    const poll = (): void => {
+      void window.api.games.emulators().then((s) => {
+        if (!live) return
+        setEmulators(s)
+        if (s.state === 'downloading') timer = window.setTimeout(poll, 1500)
+      })
+    }
+    poll()
+    return () => {
+      live = false
+      window.clearTimeout(timer)
+    }
+  }, [hasGames, scanProgress])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -939,12 +960,32 @@ export default function Settings(): JSX.Element {
                 <option value="music">Music</option>
                 <option value="audiobook">Audiobooks</option>
                 <option value="book">Books &amp; Comics</option>
+                <option value="game">Games</option>
               </select>
               <button className="btn-primary" onClick={addLibrary}>
                 Add Library Folder
               </button>
             </div>
 
+            {hasGames && emulators && (
+              <p className={emulators.state === 'failed' ? 'settings-status-error' : 'settings-hint'}>
+                {emulators.state === 'ready' && <>Games: emulators ready (EmulatorJS {emulators.version}, downloaded by this server).</>}
+                {emulators.state === 'downloading' && <>Games: downloading the emulators… {Math.round(emulators.progress * 100)}%</>}
+                {emulators.state === 'missing' && <>Games: the emulators download the first time a Games library is scanned.</>}
+                {emulators.state === 'failed' && <>Games: the emulators didn&apos;t download ({emulators.message}). </>}
+                {(emulators.state === 'failed' || emulators.state === 'missing') && (
+                  <button
+                    className="link-button"
+                    onClick={() => {
+                      setEmulators({ ...emulators, state: 'downloading', progress: 0 })
+                      void window.api.games.installEmulators().then(setEmulators)
+                    }}
+                  >
+                    Download now
+                  </button>
+                )}
+              </p>
+            )}
             <ul className="library-list">
               {libraries.map((lib) => {
                 const progress = scanProgress[lib.id]

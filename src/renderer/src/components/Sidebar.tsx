@@ -16,6 +16,14 @@ const icons = {
       <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" />
     </>
   ),
+  games: (
+    <>
+      <rect x="2" y="6" width="20" height="12" rx="6" />
+      <path d="M7 10v4M5 12h4" />
+      <circle cx="16" cy="11" r="1" />
+      <circle cx="18" cy="13" r="1" />
+    </>
+  ),
   music: (
     <>
       <path d="M9 18V5l12-2v13" />
@@ -167,6 +175,10 @@ export default function Sidebar(): JSX.Element {
         <NavLink to="/books" className="sidebar-link">
           <Icon name="books" />
           <span>Books</span>
+        </NavLink>
+        <NavLink to="/games" className="sidebar-link">
+          <Icon name="games" />
+          <span>Games</span>
         </NavLink>
         <NavLink to="/collections" className="sidebar-link">
           <Icon name="collections" />

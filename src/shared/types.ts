@@ -801,6 +801,9 @@ export interface GameSaveInfo {
 export interface GameDetail extends Game {
   // The EmulatorJS core that plays it.
   core: string
+  // The name to fetch it under (/api/games/:id/file/:fileName): the
+  // emulator goes by its extension. Disc games come as one .zip.
+  fileName: string
   saves: GameSaveInfo[]
 }
 

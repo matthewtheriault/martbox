@@ -404,7 +404,8 @@ export function registerGameRoutes(app: Express, canActAsProfile: CanAct): void 
     }
     const profileId = parseInt(String(req.query.profileId), 10)
     const saves = Number.isInteger(profileId) && canActAsProfile(res, profileId, req.query.pin as string | undefined) ? listSaves(profileId, r.id) : []
-    res.json({ ...toGame(r), core: systemInfo(r.system)?.core ?? '', saves } satisfies GameDetail)
+    const fileName = r.parts ? `${basename(r.file_path, extname(r.file_path))}.zip` : basename(r.file_path)
+    res.json({ ...toGame(r), core: systemInfo(r.system)?.core ?? '', fileName, saves } satisfies GameDetail)
   })
 
   app.get('/api/games/:id/cover', (req, res) => {

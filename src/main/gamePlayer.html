@@ -103,6 +103,8 @@ async function quit() {
   host.exit()
 }
 window.player.quit = quit
+// The desktop app asks through postMessage (the page is another origin there).
+window.addEventListener('message', (e) => { if (e.data && e.data.martboxGame === 'quit') quit() })
 
 let started = false
 setInterval(syncSave, 15000)
