@@ -1,6 +1,7 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { scanMusicLibrary } from './music'
 import { scanAudiobookLibrary } from './audiobooks'
+import { scanBookLibrary } from './books'
 import { analyzeMarkersSoon } from './markers'
 import { basename, extname, join } from 'path'
 import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
@@ -146,6 +147,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     if (library?.type === 'audiobook') {
       await scanAudiobookLibrary(library, (progress) => {
+        mainWindow.webContents.send('library:scanProgress', progress)
+      })
+      return
+    }
+    if (library?.type === 'book') {
+      await scanBookLibrary(library, (progress) => {
         mainWindow.webContents.send('library:scanProgress', progress)
       })
       return

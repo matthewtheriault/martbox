@@ -938,6 +938,7 @@ export default function Settings(): JSX.Element {
                 <option value="tv">TV Shows</option>
                 <option value="music">Music</option>
                 <option value="audiobook">Audiobooks</option>
+                <option value="book">Books &amp; Comics</option>
               </select>
               <button className="btn-primary" onClick={addLibrary}>
                 Add Library Folder
