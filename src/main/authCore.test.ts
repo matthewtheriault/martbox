@@ -74,7 +74,10 @@ describe('secrets', () => {
 })
 
 describe('remote route rules', () => {
-  it('only exempts the version check, the session check and code redemption', () => {
+  it('only exempts the version check, the session check, code redemption and the emulator files', () => {
+    expect(isPublicRemoteRoute('/emulator/player.html')).toBe(true)
+    expect(isPublicRemoteRoute('/emulator/cores/mgba-wasm.data')).toBe(true)
+    expect(isPublicRemoteRoute('/emulator/../api/games')).toBe(false)
     expect(isPublicRemoteRoute('/api/version')).toBe(true)
     expect(isPublicRemoteRoute('/api/auth/me')).toBe(true)
     expect(isPublicRemoteRoute('/api/auth/redeem')).toBe(true)
@@ -175,6 +178,9 @@ describe('media tokens', () => {
     for (const p of ['/api/audiobooks/4/cover', '/api/audiobooks/4/files/0/stream']) expect(isMediaRoute(p)).toBe(true)
     for (const p of ['/api/books/2/cover', '/api/books/2/file', '/api/books/2/pages/0']) expect(isMediaRoute(p)).toBe(true)
     for (const p of ['/api/books', '/api/books/2', '/api/books/progress', '/api/books/2/progress']) expect(isMediaRoute(p)).toBe(false)
+    for (const p of ['/api/games/3/cover', '/api/games/3/file/Pocket Hero (USA).gba']) expect(isMediaRoute(p)).toBe(true)
+    // Saves are the JSON API's: never on a media link.
+    for (const p of ['/api/games', '/api/games/3', '/api/games/3/save', '/api/games/3/states/1', '/api/games/saves']) expect(isMediaRoute(p)).toBe(false)
     for (const p of ['/api/audiobooks', '/api/audiobooks/4', '/api/audiobooks/4/progress', '/api/audiobooks/progress']) {
       expect(isMediaRoute(p)).toBe(false)
     }

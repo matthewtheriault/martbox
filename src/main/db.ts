@@ -395,7 +395,7 @@ migrateDevicesForSpeed()
 // type check gains them. SQLite can't change a CHECK in place, so the table
 // is rebuilt — with foreign keys off, or dropping it would cascade-delete
 // every movie and show that points at it.
-const LIBRARY_TYPES = ['movie', 'tv', 'music', 'audiobook', 'book']
+const LIBRARY_TYPES = ['movie', 'tv', 'music', 'audiobook', 'book', 'game']
 
 export function migrateLibraryTypes(database: Database.Database = db): void {
   const row = database

@@ -7,6 +7,7 @@ import type {
   ChannelNow,
   DashboardSnapshot,
   DashboardStats,
+  EmulatorStatus,
   PlayHistoryEntry,
   MediaRequest,
   MediaRequestStatus,
@@ -63,6 +64,10 @@ const api = {
   // src/main/ipc.ts for the matching main-process route/handler gating.
   isMasBuild: process.mas === true,
 
+  games: {
+    emulators: () => invoke<EmulatorStatus>('games:emulators'),
+    installEmulators: () => invoke<EmulatorStatus>('games:installEmulators')
+  },
   library: {
     list: () => invoke<Library[]>('library:list'),
     pickFolder: () => invoke<string | null>('library:pickFolder'),

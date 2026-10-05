@@ -3,6 +3,7 @@ import { registerMusicRoutes } from './music'
 import { registerMusicPersonalRoutes } from './musicPersonal'
 import { registerAudiobookRoutes } from './audiobooks'
 import { registerBookRoutes } from './books'
+import { registerGameRoutes } from './games'
 import { yearInReview } from './watchLog'
 import { avatarPath, removeAvatar, saveAvatar } from './avatars'
 import {
@@ -1646,6 +1647,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   registerMusicPersonalRoutes(app, canActAsProfile)
   registerAudiobookRoutes(app, canActAsProfile)
   registerBookRoutes(app, canActAsProfile)
+  registerGameRoutes(app, canActAsProfile)
   registerRequestRoutes(app)
   registerChannelRoutes(app)
   registerAdminRoutes(app)
