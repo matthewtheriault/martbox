@@ -666,3 +666,36 @@ export interface MusicSearchResults {
   albums: MusicAlbum[]
   tracks: MusicTrack[]
 }
+
+export interface MusicGenre {
+  name: string
+  albumCount: number
+  trackCount: number
+  // An album whose cover stands for the genre.
+  coverAlbumId: number | null
+}
+
+// A person's own playlist (musicPersonal.ts).
+export interface MusicPlaylist {
+  id: number
+  name: string
+  trackCount: number
+  durationSeconds: number
+  // Up to four album covers for the playlist's artwork.
+  coverAlbumIds: number[]
+  updatedAt: string
+}
+
+export interface MusicPlaylistDetail extends MusicPlaylist {
+  tracks: MusicTrack[]
+  // itemIds[i] identifies tracks[i] in the playlist (a song can be in it twice).
+  itemIds: number[]
+}
+
+// What this person has been listening to.
+export interface MusicListening {
+  recentAlbums: MusicAlbum[]
+  recentTracks: MusicTrack[]
+  // Most played over the last 90 days.
+  topTracks: MusicTrack[]
+}

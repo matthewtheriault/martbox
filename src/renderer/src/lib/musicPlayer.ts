@@ -45,6 +45,8 @@ function accepts(): string {
 
 class MusicPlayer {
   private port = 0
+  private profile: { profileId: number; pin: string | null } | null = null
+  private counted: object | null = null
   private ctx: AudioContext | null = null
   private gain: GainNode | null = null
   private listeners = new Set<Listener>()
@@ -69,6 +71,23 @@ class MusicPlayer {
 
   setPort(port: number): void {
     this.port = port
+  }
+
+  // Whose listening history a played song goes into.
+  setProfile(profileId: number, pin: string | null): void {
+    this.profile = { profileId, pin }
+  }
+
+  // A song counts as played (Recently Played, Most Played) once half of it,
+  // or four minutes, has played.
+  private countPlay(cur: object, trackId: number, position: number, duration: number): void {
+    if (this.counted === cur || !this.profile || position < Math.min(duration / 2, 240)) return
+    this.counted = cur
+    void fetch(`http://127.0.0.1:${this.port}/api/music/plays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...this.profile, trackId })
+    }).catch(() => undefined)
   }
 
   subscribe(fn: Listener): () => void {
@@ -276,6 +295,7 @@ class MusicPlayer {
     const position = cur.offset + Math.max(0, elapsed)
     const duration = cur.loaded.buffer.duration
     if (position < duration) {
+      this.countPlay(cur, cur.loaded.track.id, position, duration)
       if (this.state.playing && Math.abs(position - this.state.positionSeconds) > 0.2) this.emit({ positionSeconds: position })
       return
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTrack, sortKey } from './musicCore'
+import { parseTrack, sortKey, splitGenres } from './musicCore'
 
 const flac = {
   format: {
@@ -79,5 +79,16 @@ describe('sorting', () => {
       'A Band',
       'The Zebras'
     ])
+  })
+})
+
+describe('genres', () => {
+  it('splits multi-value tags and drops repeats', () => {
+    expect(splitGenres('Rock; Indie;rock')).toEqual(['Rock', 'Indie'])
+    expect(splitGenres('Pop\0Dance')).toEqual(['Pop', 'Dance'])
+    expect(splitGenres('Rock / Pop')).toEqual(['Rock', 'Pop'])
+    // A slash inside a name stays.
+    expect(splitGenres('R&B/Soul')).toEqual(['R&B/Soul'])
+    expect(splitGenres(null)).toEqual([])
   })
 })

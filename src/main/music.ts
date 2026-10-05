@@ -8,8 +8,8 @@ import ffmpegStatic from 'ffmpeg-static'
 import ffprobeStatic from 'ffprobe-static'
 import type { Express, Request } from 'express'
 import { db } from './db'
-import { AUDIO_EXTENSIONS, LOSSLESS_CODECS, parseTrack, sortKey, type TrackTags } from './musicCore'
-import type { Library, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicSearchResults, MusicTrack, ScanProgress } from '../shared/types'
+import { AUDIO_EXTENSIONS, LOSSLESS_CODECS, parseTrack, sortKey, splitGenres, type TrackTags } from './musicCore'
+import type { Library, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicGenre, MusicSearchResults, MusicTrack, ScanProgress } from '../shared/types'
 
 // Music (Phase 4): libraries of audio files, read into artists, albums and
 // tracks by their tags; album art from the folder or the files; streaming
@@ -305,11 +305,47 @@ export function listArtists(): MusicArtist[] {
   ).map((r) => ({ id: r.id, name: r.name, albumCount: r.albumCount, coverAlbumId: r.coverAlbumId ?? null }))
 }
 
-export function listAlbums(artistId?: number): MusicAlbum[] {
+export function listAlbums(artistId?: number, genre?: string): MusicAlbum[] {
   const rows = artistId
     ? db.prepare(`${ALBUM_SELECT} WHERE al.artist_id = ? GROUP BY al.id ORDER BY al.year DESC, al.sort_title`).all(artistId)
     : db.prepare(`${ALBUM_SELECT} GROUP BY al.id ORDER BY ar.sort_name, al.year, al.sort_title`).all()
-  return (rows as any[]).map(toAlbum)
+  const albums = (rows as any[]).map(toAlbum)
+  if (!genre) return albums
+  const ids = genreIndex().get(genre.toLowerCase())?.albumIds ?? new Set<number>()
+  return albums.filter((a) => ids.has(a.id))
+}
+
+// Every genre named in the tracks' tags, with the albums that have it.
+function genreIndex(): Map<string, { name: string; albumIds: Set<number>; trackCount: number }> {
+  const rows = db.prepare('SELECT album_id AS albumId, genre FROM music_tracks WHERE genre IS NOT NULL').all() as {
+    albumId: number
+    genre: string
+  }[]
+  const index = new Map<string, { name: string; albumIds: Set<number>; trackCount: number }>()
+  for (const r of rows) {
+    for (const name of splitGenres(r.genre)) {
+      const key = name.toLowerCase()
+      const entry = index.get(key) ?? { name, albumIds: new Set<number>(), trackCount: 0 }
+      entry.albumIds.add(r.albumId)
+      entry.trackCount++
+      index.set(key, entry)
+    }
+  }
+  return index
+}
+
+export function listGenres(): MusicGenre[] {
+  const covered = new Set(
+    (db.prepare('SELECT id FROM music_albums WHERE cover_path IS NOT NULL').all() as { id: number }[]).map((r) => r.id)
+  )
+  return [...genreIndex().values()]
+    .map((g) => ({
+      name: g.name,
+      albumCount: g.albumIds.size,
+      trackCount: g.trackCount,
+      coverAlbumId: [...g.albumIds].find((id) => covered.has(id)) ?? null
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export function getAlbum(id: number): MusicAlbumDetail | null {
@@ -322,6 +358,28 @@ export function getAlbum(id: number): MusicAlbumDetail | null {
 export function getTrack(id: number): MusicTrack | null {
   const row = db.prepare(`${TRACK_SELECT} WHERE t.id = ?`).get(id)
   return row ? toTrack(row) : null
+}
+
+// Songs and albums by id, for playlists and listening history (ids that
+// no longer exist are simply missing).
+export function tracksByIds(ids: number[]): Map<number, MusicTrack> {
+  const unique = [...new Set(ids)]
+  const out = new Map<number, MusicTrack>()
+  for (let i = 0; i < unique.length; i += 500) {
+    const chunk = unique.slice(i, i + 500)
+    const rows = db.prepare(`${TRACK_SELECT} WHERE t.id IN (${chunk.map(() => '?').join(',')})`).all(...chunk) as any[]
+    for (const r of rows) out.set(r.id, toTrack(r))
+  }
+  return out
+}
+
+export function albumsByIds(ids: number[]): Map<number, MusicAlbum> {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return new Map()
+  const rows = db
+    .prepare(`${ALBUM_SELECT} WHERE al.id IN (${unique.map(() => '?').join(',')}) GROUP BY al.id`)
+    .all(...unique) as any[]
+  return new Map(rows.map((r) => [r.id, toAlbum(r)]))
 }
 
 export function listTracks(limit = 500): MusicTrack[] {
@@ -451,8 +509,10 @@ export function registerMusicRoutes(app: Express, isRemote: (req: Request) => bo
   app.get('/api/music/artists', (_req, res) => res.json(listArtists()))
   app.get('/api/music/albums', (req, res) => {
     const artistId = parseInt(req.query.artistId as string, 10)
-    res.json(listAlbums(Number.isInteger(artistId) ? artistId : undefined))
+    const genre = typeof req.query.genre === 'string' && req.query.genre ? req.query.genre : undefined
+    res.json(listAlbums(Number.isInteger(artistId) ? artistId : undefined, genre))
   })
+  app.get('/api/music/genres', (_req, res) => res.json(listGenres()))
   app.get('/api/music/albums/:id', (req, res) => {
     const album = getAlbum(id(req))
     if (album) res.json(album)

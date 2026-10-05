@@ -1,14 +1,17 @@
-import { useState, type MouseEvent } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { musicPlayer } from '../lib/musicPlayer'
 import { useMusic } from '../lib/useMusic'
 import { formatTime } from '../lib/media'
+import { useProfile } from '../lib/ProfileContext'
 
 // The music player along the bottom of the app while anything is queued.
 export default function NowPlayingBar(): JSX.Element | null {
   const music = useMusic()
   const navigate = useNavigate()
   const [showQueue, setShowQueue] = useState(false)
+  const { activeProfile, profilePin } = useProfile()
+  useEffect(() => musicPlayer.setProfile(activeProfile.id, profilePin), [activeProfile.id, profilePin])
   const track = music.queue[music.index]
   if (!track) return null
   const duration = musicPlayer.durationSeconds || track.durationSeconds
