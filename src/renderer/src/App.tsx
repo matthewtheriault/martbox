@@ -58,6 +58,9 @@ export default function App(): JSX.Element {
                 <Route path="/music" element={<Music />} />
                 <Route path="/music/album/:albumId" element={<Music />} />
                 <Route path="/music/artist/:artistId" element={<Music />} />
+                <Route path="/music/genre/:genre" element={<Music />} />
+                <Route path="/music/playlist/:playlistId" element={<Music />} />
+                <Route path="/music/listening/:kind" element={<Music />} />
               </Routes>
             </Suspense>
           </main>

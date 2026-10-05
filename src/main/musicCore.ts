@@ -103,3 +103,19 @@ export const LOSSLESS_CODECS = new Set(['flac', 'alac', 'pcm_s16le', 'pcm_s24le'
 export function sortKey(name: string): string {
   return name.replace(/^(the|a|an)\s+/i, '').toLowerCase()
 }
+
+// A genre tag can hold several ("Rock; Indie", or ID3v2.4's NUL-separated
+// list); each counts on its own. Case is folded for matching but the first
+// spelling seen is kept for display.
+export function splitGenres(tag: string | null | undefined): string[] {
+  if (!tag) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of tag.split(/[;\0]|\s\/\s/)) {
+    const name = part.trim()
+    if (!name || seen.has(name.toLowerCase())) continue
+    seen.add(name.toLowerCase())
+    out.push(name)
+  }
+  return out
+}
