@@ -39,6 +39,11 @@ or away. It's free and open source: no subscription, no ads, and nothing goes to
 - For comics: zoom, swipe pages, and a right-to-left mode for manga
 - Close a book on one device and open it on another at the same page
 
+**🎮 Retro games**
+- Game Boy, Game Boy Color, Game Boy Advance, NES, Super Nintendo, Nintendo 64, Nintendo DS and PlayStation, from backups of games you own
+- Games run on your own device, with on-screen controls on phones or a Bluetooth controller
+- Your saves follow you: play on the computer, carry on from the same save on your phone or TV
+
 **👤 Your own profile**
 - Your own profile picture, accent colour, history and place in everything
 - Optional PIN to keep your profile yours
@@ -61,7 +66,7 @@ until you sign out or the owner removes it.
 
 ## Coming next
 
-- **Retro games:** classic console games played with a controller, with your saves following you between devices
+- **Games on Apple TV**
 - **A fresh new look** across every app
 - **Maybe later:** a web browser version, downloads for offline use, and CarPlay / Android Auto
 
@@ -71,6 +76,7 @@ See [Releases](https://github.com/matthewtheriault/martbox/releases) for each up
 
 | Version | What it added |
 |---|---|
+| 0.19.0 | Retro games |
 | 0.18.0 | Books and comics |
 | 0.17.0 | Audiobooks |
 | 0.16.0 | Music playlists, genres and listening history |
