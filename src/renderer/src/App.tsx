@@ -8,6 +8,8 @@ import CommandPalette from './components/CommandPalette'
 import NowPlayingBar from './components/NowPlayingBar'
 import BookPlayerBar from './components/BookPlayerBar'
 import Audiobooks from './pages/Audiobooks'
+import Books from './pages/Books'
+import Reader from './pages/Reader'
 
 const Home = lazy(() => import('./pages/Home'))
 const Movies = lazy(() => import('./pages/Movies'))
@@ -28,9 +30,9 @@ const Music = lazy(() => import('./pages/Music'))
 
 export default function App(): JSX.Element {
   const location = useLocation()
-  // Full-screen pages: the player, and watching a Live Channel.
+  // Full-screen pages: the player, watching a Live Channel, and reading.
   const isPlayerRoute =
-    location.pathname.startsWith('/play/') || /^\/live\/\d+/.test(location.pathname)
+    location.pathname.startsWith('/play/') || /^\/live\/\d+/.test(location.pathname) || location.pathname.startsWith('/read/')
 
   return (
     <PortProvider>
@@ -59,6 +61,9 @@ export default function App(): JSX.Element {
                 <Route path="/year" element={<YearInReview />} />
                 <Route path="/music" element={<Music />} />
                 <Route path="/audiobooks" element={<Audiobooks />} />
+                <Route path="/books" element={<Books />} />
+                <Route path="/books/:bookId" element={<Books />} />
+                <Route path="/read/:bookId" element={<Reader />} />
                 <Route path="/audiobooks/:bookId" element={<Audiobooks />} />
                 <Route path="/music/album/:albumId" element={<Music />} />
                 <Route path="/music/artist/:artistId" element={<Music />} />

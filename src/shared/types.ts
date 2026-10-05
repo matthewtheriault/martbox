@@ -112,7 +112,7 @@ export interface ShowSearchResult {
 export interface Library {
   id: number
   path: string
-  type: 'movie' | 'tv' | 'music' | 'audiobook'
+  type: 'movie' | 'tv' | 'music' | 'audiobook' | 'book'
   name: string
 }
 
@@ -738,6 +738,36 @@ export interface AudiobookDetail extends Audiobook {
 export interface AudiobookProgress {
   bookId: number
   positionSeconds: number
+  finished: boolean
+  updatedAt: string
+}
+
+// Books and comics (books.ts).
+export interface Book {
+  id: number
+  format: 'epub' | 'pdf' | 'comic'
+  title: string
+  author: string | null
+  series: string | null
+  seriesIndex: string | null
+  year: number | null
+  // Comics: how many pages (PDFs count theirs when opened).
+  pageCount: number | null
+  hasCover: boolean
+  addedAt: string
+}
+
+export interface BookDetail extends Book {
+  description: string | null
+}
+
+// Where one person is in a book, synced across their devices. `locator` is
+// the reader's own position (an EPUB CFI, or a page number as text).
+export interface BookProgress {
+  bookId: number
+  locator: string
+  // 0–1 through the book.
+  fraction: number
   finished: boolean
   updatedAt: string
 }

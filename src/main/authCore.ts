@@ -146,6 +146,7 @@ export function isMediaRoute(path: string): boolean {
     // Album art and music streams load in <img>/<audio>/players too.
     /^\/api\/music\/(albums\/\d+\/cover|tracks\/\d+\/stream)$/.test(path) ||
     /^\/api\/audiobooks\/\d+\/(cover|files\/\d+\/stream)$/.test(path) ||
+    /^\/api\/books\/\d+\/(cover|file|pages\/\d+)$/.test(path) ||
     MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))
   )
 }
