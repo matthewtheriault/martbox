@@ -31,12 +31,25 @@ interface Clip {
   offset: number
 }
 
+// Playback started: stop at once (markers.ts tries again later).
+let cancelled = false
+const running = new Set<import('child_process').ChildProcess>()
+
+class Cancelled extends Error {}
+
+function checkCancelled(): void {
+  if (cancelled) throw new Cancelled('cancelled')
+}
+
 function decode(ffmpegPath: string, filePath: string, start: number, seconds: number): Promise<Int16Array> {
   return new Promise((resolve) => {
     const args = ['-v', 'error', '-nostdin']
     if (start > 0) args.push('-ss', String(start))
     args.push('-t', String(seconds), '-i', filePath, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 's16le', '-')
-    const proc = spawn(ffmpegPath, args)
+    // One thread: this runs alongside playback on the same machine.
+    const proc = spawn(ffmpegPath, ['-threads', '1', ...args])
+    running.add(proc)
+    proc.on('close', () => running.delete(proc))
     try {
       if (proc.pid) setPriority(proc.pid, constants.priority.PRIORITY_LOW)
     } catch {
@@ -83,6 +96,7 @@ export async function analyzeSeason(job: SeasonJob): Promise<SeasonResult> {
   for (let i = 0; i < job.episodes.length; i++) {
     const ep = job.episodes[i]
     if (!ep.pending) continue
+    checkCancelled()
     const markers = markersFromChapters(await probeChapters(ep.filePath))
     const fromChapters = markers.introStart !== null || markers.creditsStart !== null
     let listened = false
@@ -91,6 +105,7 @@ export async function analyzeSeason(job: SeasonJob): Promise<SeasonResult> {
     const partners = [i + 1, i - 1, i + 2, i - 2].filter((j) => j >= 0 && j < job.episodes.length)
     if (markers.introStart === null) {
       for (const j of partners.slice(0, 3)) {
+        checkCancelled()
         const intro = introFrom((await head(i)).fp, (await head(j)).fp)
         listened = true
         if (intro) {
@@ -103,6 +118,7 @@ export async function analyzeSeason(job: SeasonJob): Promise<SeasonResult> {
     if (markers.creditsStart === null) {
       const mine = await tail(i)
       for (const j of mine ? partners.slice(0, 3) : []) {
+        checkCancelled()
         const theirs = await tail(j)
         if (!theirs) continue
         const start = creditsFrom(mine!.fp, theirs.fp, mine!.offset)
@@ -124,10 +140,16 @@ export async function analyzeSeason(job: SeasonJob): Promise<SeasonResult> {
   return result
 }
 
-parentPort?.on('message', async (job: SeasonJob) => {
+parentPort?.on('message', async (job: SeasonJob | { cancel: true }) => {
+  if ('cancel' in job) {
+    cancelled = true
+    for (const p of running) p.kill('SIGKILL')
+    return
+  }
+  cancelled = false
   try {
     parentPort!.postMessage({ ok: true, result: await analyzeSeason(job) })
   } catch (err) {
-    parentPort!.postMessage({ ok: false, error: String(err) })
+    parentPort!.postMessage({ ok: false, cancelled: err instanceof Cancelled || cancelled, error: String(err) })
   }
 })
