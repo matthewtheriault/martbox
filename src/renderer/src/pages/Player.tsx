@@ -80,6 +80,20 @@ export default function Player(): JSX.Element | null {
         ? `http://127.0.0.1:${port}${streamPath}${offsetQuery(streamPath)}`
         : streamUrl(mediaType as MediaType, mediaId, port, directPlay ? undefined : offset)
 
+  // Where a repackaged stream from `seconds` really starts: copied video
+  // can only begin on a keyframe, and the server starts the audio there too,
+  // so the clock has to as well. Older servers: where it was asked.
+  const streamStart = async (seconds: number, path: string | null): Promise<number> => {
+    if (seconds <= 0 || !mediaType) return seconds
+    const copy = path?.includes('copy=1') ? '&copy=1' : ''
+    const res = await fetch(
+      `http://127.0.0.1:${port}/api/stream-start/${mediaType}/${mediaId}?t=${seconds}${copy}`
+    ).catch(() => null)
+    if (!res?.ok) return seconds
+    const body = await res.json().catch(() => null)
+    return typeof body?.seconds === 'number' ? body.seconds : seconds
+  }
+
   useEffect(() => {
     if (!mediaType || !id) return
 
@@ -119,6 +133,7 @@ export default function Player(): JSX.Element | null {
       // The original whenever this player decodes it; servers from before
       // /api/playback (0.5.x) answer 404 and get the old rule.
       let isDirect = false
+      let planPath: string | null = null
       const planRes = await fetch(
         `http://127.0.0.1:${port}/api/playback/${mediaType}/${mediaId}?${desktopPlaybackQuery()}`
       ).catch(() => null)
@@ -131,6 +146,7 @@ export default function Player(): JSX.Element | null {
         if (plan.durationSeconds) totalDurationSeconds = plan.durationSeconds
         setMethod(plan.method)
         setStreamPath(plan.path)
+        planPath = plan.path
       } else {
         const probeRes = await fetch(`http://127.0.0.1:${port}/probe/${mediaType}/${mediaId}`)
         const probe = await probeRes.json()
@@ -144,7 +160,7 @@ export default function Player(): JSX.Element | null {
       setSelectedSubtitle(null)
 
       setDirectPlay(isDirect)
-      setOffset(isDirect ? 0 : startSeconds)
+      setOffset(isDirect ? 0 : await streamStart(startSeconds, planPath))
       setTarget({ title, totalDurationSeconds, startSeconds })
     }
 
@@ -269,10 +285,11 @@ export default function Player(): JSX.Element | null {
       if (directPlay) {
         video.currentTime = clamped
       } else {
-        setOffset(clamped)
+        void streamStart(clamped, streamPath).then(setOffset)
       }
     },
-    [directPlay, target]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [directPlay, target, streamPath]
   )
 
   const seekBy = (deltaSeconds: number): void => {

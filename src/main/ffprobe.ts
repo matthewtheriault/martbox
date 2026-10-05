@@ -30,6 +30,9 @@ export interface MediaProbe {
   // ffmpeg starts a seek a little early in files with B-frames; remuxing
   // has to correct for it (see hls.ts).
   hasBFrames: boolean
+  // How far the first frame is shown after the stream starts when the
+  // video has B-frames (frames of delay × frame length).
+  videoDelaySeconds: number
   // Timestamp of the file's first frame — usually 0, sometimes a few ms.
   startSeconds: number
   audioChannels: number | null
@@ -48,6 +51,7 @@ const EMPTY_PROBE: MediaProbe = {
   hdr: null,
   dolbyVisionProfile: null,
   hasBFrames: false,
+  videoDelaySeconds: 0,
   startSeconds: 0,
   audioChannels: null
 }
@@ -55,6 +59,13 @@ const EMPTY_PROBE: MediaProbe = {
 function positiveNumber(value: unknown): number | null {
   const n = typeof value === 'number' ? value : parseFloat(String(value ?? ''))
   return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function frameDelay(stream: any): number {
+  const frames = Number(stream?.has_b_frames ?? 0)
+  const [num, den] = String(stream?.avg_frame_rate || stream?.r_frame_rate || '0/1').split('/').map(Number)
+  const fps = den ? num / den : 0
+  return frames > 0 && fps > 0 ? frames / fps : 0
 }
 
 // Parses ffprobe's -show_format -show_streams JSON.
@@ -83,6 +94,7 @@ export function parseProbe(data: any): MediaProbe {
     hdr: transfer === 'smpte2084' ? 'hdr10' : transfer === 'arib-std-b67' ? 'hlg' : null,
     dolbyVisionProfile: dovi ? Number(dovi.dv_profile) : null,
     hasBFrames: Number(videoStream?.has_b_frames ?? 0) > 0,
+    videoDelaySeconds: frameDelay(videoStream),
     startSeconds: Number.isFinite(parseFloat(data.format?.start_time))
       ? parseFloat(data.format.start_time)
       : 0,
@@ -146,5 +158,49 @@ export async function probeChapters(filePath: string): Promise<Chapter[]> {
     }))
   } catch {
     return []
+  }
+}
+
+// The video keyframe at or before `seconds` (counted from the file's start,
+// as players count). Copied (not re-encoded) video can only start on a
+// keyframe, so a stream that starts anywhere else has its video begin
+// earlier than its audio — and Chromium then plays them out of step. Null
+// when ffprobe can't tell.
+export async function keyframeAtOrBefore(
+  filePath: string,
+  seconds: number,
+  fileStartSeconds: number
+): Promise<number | null> {
+  if (seconds <= 0) return 0
+  // Keyframes are rarely more than ~10 s apart; 60 s back covers odd files.
+  const from = Math.max(0, seconds - 60) + fileStartSeconds
+  const to = seconds + fileStartSeconds + 0.5
+  try {
+    const { stdout } = await execFileAsync(
+      ffprobePath,
+      [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-skip_frame', 'nokey',
+        '-show_entries', 'frame=pts_time,best_effort_timestamp_time',
+        '-of', 'csv=p=0',
+        '-read_intervals', `${from}%${to}`,
+        filePath
+      ],
+      { maxBuffer: 4 * 1024 * 1024 }
+    )
+    let best: number | null = null
+    for (const line of stdout.split('\n')) {
+      const t = line
+        .split(',')
+        .map((x) => parseFloat(x))
+        .find((x) => Number.isFinite(x))
+      if (t === undefined) continue
+      const rel = t - fileStartSeconds
+      if (rel <= seconds + 0.0005 && (best === null || rel > best)) best = rel
+    }
+    return best === null ? null : Math.max(0, best)
+  } catch {
+    return null
   }
 }

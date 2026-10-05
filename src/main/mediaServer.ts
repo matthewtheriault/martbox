@@ -95,7 +95,7 @@ import {
   getLibrarySeenAt,
   markLibrarySeen
 } from './repository'
-import { probeFile, canDirectPlay, type MediaProbe } from './ffprobe'
+import { probeFile, canDirectPlay, keyframeAtOrBefore, type MediaProbe } from './ffprobe'
 import { readMkvKeyframes } from './mkvKeyframes'
 import {
   decidePlayback,
@@ -786,17 +786,29 @@ export function setHlsCacheDir(dir: string | null): void {
   clearStaleHlsFolders(hlsCacheDir())
 }
 
+// Where a /stream from `requested` really starts: the keyframe at or before
+// it when the video is copied (plus a hair, so ffmpeg's seek lands on that
+// keyframe and not the one before), else exactly there.
+async function streamStartFor(filePath: string, probe: MediaProbe, requested: number, copyVideo: boolean): Promise<number> {
+  if (!copyVideo || requested <= 0) return requested
+  const keyframe = await keyframeAtOrBefore(filePath, requested, probe.startSeconds)
+  return keyframe === null ? requested : keyframe + 0.001
+}
+
 async function streamTranscode(
   req: express.Request,
   res: express.Response,
   filePath: string,
   probe: MediaProbe
 ): Promise<void> {
-  const startSeconds = parseFloat((req.query.t as string) || '0') || 0
+  const requested = parseFloat((req.query.t as string) || '0') || 0
   const videoCodec = probe.videoCodec
   // ?copy=1: /api/playback found the desktop player decodes this video (e.g.
   // HEVC in an MKV), so it's repackaged untouched; H.264 always was.
   const copyVideo = req.query.copy === '1' || videoCodec === 'h264'
+  // Copied video starts at a keyframe, so the audio has to start there too
+  // (the player asked /api/stream-start for the same time).
+  const startSeconds = await streamStartFor(filePath, probe, requested, copyVideo)
 
   const hardwareEncoder = copyVideo ? null : await detectHardwareEncoder()
   // HDR re-encoded for the desktop player gets SDR colours too, at 1080p at
@@ -813,10 +825,18 @@ async function streamTranscode(
   const decodeArgs = copyVideo ? [] : await hwDecodeArgs()
   // Chromium plays AAC and MP3 as they are; anything else (AC-3, E-AC-3,
   // DTS…) becomes AAC, keeping up to 5.1.
+  const channels = Math.min(probe.audioChannels ?? 2, 6)
+  // Copied video with B-frames shows its first frame a couple of frames in,
+  // and this stream format can't say so — Chromium would play the audio
+  // that much early (~80 ms at 24 fps). Converted audio waits the same.
+  const audioDelayMs = copyVideo ? Math.round(probe.videoDelaySeconds * 1000) : 0
   const audioArgs =
     probe.audioCodec === 'aac' || probe.audioCodec === 'mp3'
       ? ['-c:a', 'copy']
-      : ['-c:a', 'aac', '-ac', String(Math.min(probe.audioChannels ?? 2, 6))]
+      : [
+          ...(audioDelayMs > 0 ? ['-af', `adelay=${audioDelayMs}:all=1`] : []),
+          '-c:a', 'aac', '-ac', String(channels), '-b:a', channels > 2 ? '384k' : '192k'
+        ]
   const args = [
     '-ss',
     String(startSeconds),
@@ -1622,6 +1642,20 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     },
     cacheDir: hlsCacheDir,
     log: logTranscode
+  })
+
+  // The desktop player asks before (re)starting a repackaged stream, so its
+  // clock matches where the stream really begins (see streamStartFor).
+  app.get('/api/stream-start/:mediaType/:id', async (req, res) => {
+    const filePath = resolveMediaPath(req.params.mediaType, parseInt(req.params.id, 10))
+    if (!filePath || !existsSync(filePath)) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+    const probe = await probeFile(filePath)
+    const requested = parseFloat((req.query.t as string) || '0') || 0
+    const copyVideo = req.query.copy === '1' || probe.videoCodec === 'h264'
+    res.json({ seconds: await streamStartFor(filePath, probe, requested, copyVideo) })
   })
 
   app.get('/stream/:mediaType/:id', async (req, res) => {

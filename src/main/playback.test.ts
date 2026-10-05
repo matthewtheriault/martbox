@@ -32,6 +32,7 @@ function probe(overrides: Partial<MediaProbe>): MediaProbe {
     hdr: 'hdr10',
     dolbyVisionProfile: null,
     hasBFrames: true,
+    videoDelaySeconds: 0.083,
     startSeconds: 0,
     audioChannels: 6,
     ...overrides
