@@ -192,7 +192,7 @@ export function listLibraries(): Library[] {
   return (db.prepare('SELECT * FROM libraries ORDER BY name').all() as any[]).map(rowToLibrary)
 }
 
-export function addLibrary(path: string, type: 'movie' | 'tv', name: string): Library {
+export function addLibrary(path: string, type: 'movie' | 'tv' | 'music', name: string): Library {
   const info = db
     .prepare('INSERT INTO libraries (path, type, name) VALUES (?, ?, ?)')
     .run(path, type, name)

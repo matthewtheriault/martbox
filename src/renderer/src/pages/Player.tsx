@@ -3,6 +3,7 @@ import Hls from 'hls.js'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Episode, EpisodeMarkers, MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
+import { musicPlayer } from '../lib/musicPlayer'
 import { useProfile } from '../lib/ProfileContext'
 import { streamUrl, formatTime, desktopPlaybackQuery } from '../lib/media'
 
@@ -96,6 +97,9 @@ export default function Player(): JSX.Element | null {
     const body = await res.json().catch(() => null)
     return typeof body?.seconds === 'number' ? body.seconds : seconds
   }
+
+  // A video starting stops the music.
+  useEffect(() => musicPlayer.pause(), [])
 
   useEffect(() => {
     if (!mediaType || !id) return

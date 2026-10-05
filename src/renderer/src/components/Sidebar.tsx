@@ -4,6 +4,13 @@ import { useProfile } from '../lib/ProfileContext'
 import Avatar from './Avatar'
 
 const icons = {
+  music: (
+    <>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </>
+  ),
   year: (
     <path d="M12 3l2.2 5.6L20 9.3l-4.4 3.9 1.3 5.8L12 16l-4.9 3 1.3-5.8L4 9.3l5.8-.7z" />
   ),
@@ -136,6 +143,10 @@ export default function Sidebar(): JSX.Element {
         <NavLink to="/tv" className="sidebar-link">
           <Icon name="tv" />
           <span>TV Shows</span>
+        </NavLink>
+        <NavLink to="/music" className="sidebar-link">
+          <Icon name="music" />
+          <span>Music</span>
         </NavLink>
         <NavLink to="/collections" className="sidebar-link">
           <Icon name="collections" />

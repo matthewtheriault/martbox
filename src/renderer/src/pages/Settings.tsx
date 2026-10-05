@@ -40,7 +40,7 @@ export default function Settings(): JSX.Element {
   const navigate = useNavigate()
   const { activeProfile, switchProfile } = useProfile()
   const [libraries, setLibraries] = useState<Library[]>([])
-  const [newLibraryType, setNewLibraryType] = useState<'movie' | 'tv'>('movie')
+  const [newLibraryType, setNewLibraryType] = useState<'movie' | 'tv' | 'music'>('movie')
   const [tmdbKey, setTmdbKey] = useState('')
   const [keyStatus, setKeyStatus] = useState<'idle' | 'saving' | 'valid' | 'invalid'>('idle')
   const [scanProgress, setScanProgress] = useState<Record<number, ScanProgress>>({})
@@ -932,10 +932,11 @@ export default function Settings(): JSX.Element {
             <div className="settings-row">
               <select
                 value={newLibraryType}
-                onChange={(e) => setNewLibraryType(e.target.value as 'movie' | 'tv')}
+                onChange={(e) => setNewLibraryType(e.target.value as 'movie' | 'tv' | 'music')}
               >
                 <option value="movie">Movies</option>
                 <option value="tv">TV Shows</option>
+                <option value="music">Music</option>
               </select>
               <button className="btn-primary" onClick={addLibrary}>
                 Add Library Folder

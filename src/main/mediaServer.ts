@@ -1,4 +1,5 @@
 import express from 'express'
+import { registerMusicRoutes } from './music'
 import { yearInReview } from './watchLog'
 import { avatarPath, removeAvatar, saveAvatar } from './avatars'
 import {
@@ -1638,6 +1639,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
   })
 
   registerMetadataApi(app)
+  registerMusicRoutes(app, (req) => req.socket.localPort === remotePort)
   registerRequestRoutes(app)
   registerChannelRoutes(app)
   registerAdminRoutes(app)

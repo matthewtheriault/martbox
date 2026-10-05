@@ -391,6 +391,43 @@ function migrateDevicesForSpeed(): void {
 
 migrateDevicesForSpeed()
 
+// Music libraries (music.ts): the libraries table's type check gains
+// 'music'. SQLite can't change a CHECK in place, so the table is rebuilt —
+// with foreign keys off, or dropping it would cascade-delete every movie
+// and show that points at it.
+export function migrateLibrariesForMusic(database: Database.Database = db): void {
+  const row = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'libraries'")
+    .get() as { sql: string } | undefined
+  if (!row || row.sql.includes("'music'")) return
+  const cols = (database.prepare('PRAGMA table_info(libraries)').all() as { name: string }[])
+    .map((c) => c.name)
+  const extra = cols.filter((c) => !['id', 'path', 'type', 'name'].includes(c))
+  if (extra.length > 0) throw new Error(`libraries has unexpected columns: ${extra.join(', ')}`)
+  database.pragma('foreign_keys = OFF')
+  try {
+    database.transaction(() => {
+      database.exec(`
+        CREATE TABLE libraries_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          path TEXT UNIQUE NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('movie', 'tv', 'music')),
+          name TEXT NOT NULL
+        );
+        INSERT INTO libraries_new (id, path, type, name) SELECT id, path, type, name FROM libraries;
+        DROP TABLE libraries;
+        ALTER TABLE libraries_new RENAME TO libraries;
+      `)
+      const broken = database.pragma('foreign_key_check') as unknown[]
+      if (broken.length > 0) throw new Error('libraries rebuild broke foreign keys')
+    })()
+  } finally {
+    database.pragma('foreign_keys = ON')
+  }
+}
+
+migrateLibrariesForMusic()
+
 // Profile photos (avatars.ts): when the photo last changed.
 function migrateProfilesForPhoto(): void {
   const cols = db.prepare('PRAGMA table_info(profiles)').all() as { name: string }[]

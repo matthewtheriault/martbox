@@ -1,11 +1,12 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { scanMusicLibrary } from './music'
 import { analyzeMarkersSoon } from './markers'
 import { basename, extname, join } from 'path'
 import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
 import { randomUUID } from 'crypto'
 import * as repository from './repository'
 import * as remoteClient from './remoteClient'
-import { listLibraries, addLibrary, removeLibrary } from './repository'
+import { listLibraries, addLibrary, getLibrary, removeLibrary } from './repository'
 import {
   getSetting,
   setSetting,
@@ -126,7 +127,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('library:add', (_e, path: string, type: 'movie' | 'tv') => {
+  ipcMain.handle('library:add', (_e, path: string, type: 'movie' | 'tv' | 'music') => {
     return addLibrary(path, type, basename(path))
   })
 
@@ -134,6 +135,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('library:scan', async (_e, id: number) => {
     await backupDatabase()
+    const library = getLibrary(id)
+    if (library?.type === 'music') {
+      await scanMusicLibrary(library, (progress) => {
+        mainWindow.webContents.send('library:scanProgress', progress)
+      })
+      return
+    }
     await scanAndMatchLibrary(id, (progress) => {
       mainWindow.webContents.send('library:scanProgress', progress)
     })
