@@ -83,11 +83,13 @@ export default function Player(): JSX.Element | null {
   // Where a repackaged stream from `seconds` really starts: copied video
   // can only begin on a keyframe, and the server starts the audio there too,
   // so the clock has to as well. Older servers: where it was asked.
-  const streamStart = async (seconds: number, path: string | null): Promise<number> => {
+  // `after`: skipping forward from there, so it never lands back behind it.
+  const streamStart = async (seconds: number, path: string | null, after?: number): Promise<number> => {
     if (seconds <= 0 || !mediaType) return seconds
     const copy = path?.includes('copy=1') ? '&copy=1' : ''
+    const from = after === undefined ? '' : `&after=${after}`
     const res = await fetch(
-      `http://127.0.0.1:${port}/api/stream-start/${mediaType}/${mediaId}?t=${seconds}${copy}`
+      `http://127.0.0.1:${port}/api/stream-start/${mediaType}/${mediaId}?t=${seconds}${copy}${from}`
     ).catch(() => null)
     if (!res?.ok) return seconds
     const body = await res.json().catch(() => null)
@@ -285,11 +287,12 @@ export default function Player(): JSX.Element | null {
       if (directPlay) {
         video.currentTime = clamped
       } else {
-        void streamStart(clamped, streamPath).then(setOffset)
+        const now = offset + video.currentTime
+        void streamStart(clamped, streamPath, clamped > now ? now : undefined).then(setOffset)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [directPlay, target, streamPath]
+    [directPlay, target, streamPath, offset]
   )
 
   const seekBy = (deltaSeconds: number): void => {

@@ -33,6 +33,8 @@ import {
   clearStaleHlsFolders,
   hlsConversions,
   registerHlsRoutes,
+  BFRAME_SEEK_SHIFT,
+  SEEK_MARGIN_SECONDS,
   stopAllHlsSessions,
   stopHlsSessionsFor
 } from './hls'
@@ -787,12 +789,27 @@ export function setHlsCacheDir(dir: string | null): void {
 }
 
 // Where a /stream from `requested` really starts: the keyframe at or before
-// it when the video is copied (plus a hair, so ffmpeg's seek lands on that
-// keyframe and not the one before), else exactly there.
-async function streamStartFor(filePath: string, probe: MediaProbe, requested: number, copyVideo: boolean): Promise<number> {
+// it when the video is copied, else exactly there.
+async function streamStartFor(
+  filePath: string,
+  probe: MediaProbe,
+  requested: number,
+  copyVideo: boolean,
+  after?: number
+): Promise<number> {
   if (!copyVideo || requested <= 0) return requested
-  const keyframe = await keyframeAtOrBefore(filePath, requested, probe.startSeconds)
-  return keyframe === null ? requested : keyframe + 0.001
+  return (await keyframeAtOrBefore(filePath, requested, probe.startSeconds, after)) ?? requested
+}
+
+// The -ss that makes ffmpeg begin both the copied video and the audio at
+// that keyframe. With B-frames ffmpeg starts a seek 3/23 s before the time
+// it's given, which for the keyframe itself lands on the keyframe before —
+// the video then starts there while the audio starts at the time asked,
+// and Chromium plays the audio early by the gap (seconds). Same shift as
+// the HLS repackaging (hls.ts).
+function streamSeekFor(start: number, probe: MediaProbe, copyVideo: boolean): number {
+  if (!copyVideo || start <= 0) return start
+  return start + SEEK_MARGIN_SECONDS + (probe.hasBFrames ? BFRAME_SEEK_SHIFT : 0)
 }
 
 async function streamTranscode(
@@ -809,6 +826,7 @@ async function streamTranscode(
   // Copied video starts at a keyframe, so the audio has to start there too
   // (the player asked /api/stream-start for the same time).
   const startSeconds = await streamStartFor(filePath, probe, requested, copyVideo)
+  const seekSeconds = streamSeekFor(startSeconds, probe, copyVideo)
 
   const hardwareEncoder = copyVideo ? null : await detectHardwareEncoder()
   // HDR re-encoded for the desktop player gets SDR colours too, at 1080p at
@@ -829,7 +847,9 @@ async function streamTranscode(
   // Copied video with B-frames shows its first frame a couple of frames in,
   // and this stream format can't say so — Chromium would play the audio
   // that much early (~80 ms at 24 fps). Converted audio waits the same.
-  const audioDelayMs = copyVideo ? Math.round(probe.videoDelaySeconds * 1000) : 0
+  // After a seek the audio also starts at the shifted seek time, that much
+  // after the keyframe the video starts on (streamSeekFor).
+  const audioDelayMs = copyVideo ? Math.round((probe.videoDelaySeconds + seekSeconds - startSeconds) * 1000) : 0
   const audioArgs =
     probe.audioCodec === 'aac' || probe.audioCodec === 'mp3'
       ? ['-c:a', 'copy']
@@ -839,7 +859,7 @@ async function streamTranscode(
         ]
   const args = [
     '-ss',
-    String(startSeconds),
+    seekSeconds.toFixed(4),
     ...decodeArgs,
     '-i',
     filePath,
@@ -876,7 +896,7 @@ async function streamTranscode(
   ]
 
   logTranscode(
-    `START file=${filePath} videoCodec=${videoCodec} hwEncoder=${hardwareEncoder ?? 'none (software)'} startSeconds=${startSeconds} range=${req.headers.range ?? 'none'} args=${JSON.stringify(args)}`
+    `START file=${filePath} videoCodec=${videoCodec} hwEncoder=${hardwareEncoder ?? 'none (software)'} startSeconds=${startSeconds} seek=${seekSeconds.toFixed(4)} requested=${requested} range=${req.headers.range ?? 'none'} args=${JSON.stringify(args)}`
   )
 
   const ff = spawn(ffmpegPath, args)
@@ -1655,7 +1675,10 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     const probe = await probeFile(filePath)
     const requested = parseFloat((req.query.t as string) || '0') || 0
     const copyVideo = req.query.copy === '1' || probe.videoCodec === 'h264'
-    res.json({ seconds: await streamStartFor(filePath, probe, requested, copyVideo) })
+    const after = parseFloat(req.query.after as string)
+    res.json({
+      seconds: await streamStartFor(filePath, probe, requested, copyVideo, Number.isFinite(after) ? after : undefined)
+    })
   })
 
   app.get('/stream/:mediaType/:id', async (req, res) => {

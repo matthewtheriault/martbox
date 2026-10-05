@@ -62,8 +62,8 @@ const SHARED_OWNER = 'shared'
 // asked for (fftools' "dts heuristic", 3/23 s), which would land on the
 // keyframe before the one we want; a remux run adds it back, plus a frame's
 // fraction so rounding never lands short.
-const BFRAME_SEEK_SHIFT = 3 / 23
-const SEEK_MARGIN_SECONDS = 0.02
+export const BFRAME_SEEK_SHIFT = 3 / 23
+export const SEEK_MARGIN_SECONDS = 0.02
 // Remuxed timestamps start this far in, so B-frames' decode times — a few
 // frames before their presentation times — never go negative at the start.
 const REMUX_TIMESTAMP_PAD = 1
