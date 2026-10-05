@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
+import Hls from 'hls.js'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Episode, EpisodeMarkers, MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
@@ -141,7 +142,9 @@ export default function Player(): JSX.Element | null {
       ).catch(() => null)
       if (planRes?.ok) {
         const plan = await planRes.json()
-        isDirect = plan.method === 'direct'
+        // HLS (the original video cut at its keyframes) seeks within the
+        // stream like a file played directly.
+        isDirect = plan.method === 'direct' || String(plan.path).includes('.m3u8')
         // The file's real length, measured by the server — more reliable than
         // a saved progress record or the library's rounded runtime, and a
         // streamed (not direct) video can't tell its own length.
@@ -499,6 +502,33 @@ export default function Player(): JSX.Element | null {
     }
   }, [])
 
+  // HLS plays through hls.js (Chromium has no HLS of its own). If it can't
+  // play it after all, the same repackaging as one continuous stream.
+  const isHls = !!streamPath?.includes('.m3u8')
+  useEffect(() => {
+    const video = videoRef.current
+    if (!isHls || !video || !target || !port) return
+    const hls = new Hls({ enableWorker: false, startPosition: target.startSeconds })
+    let recovered = false
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal) return
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) {
+        recovered = true
+        hls.recoverMediaError()
+        return
+      }
+      const at = video.currentTime
+      hls.destroy()
+      setDirectPlay(false)
+      setOffset(at)
+      setStreamPath(`/stream/${mediaType}/${mediaId}?copy=1`)
+    })
+    hls.loadSource(src)
+    hls.attachMedia(video)
+    return () => hls.destroy()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHls, src, target])
+
   // Every hook above this line: React needs the same hooks on every render.
   if (!mediaType || !target || !port) return null
 
@@ -535,7 +565,7 @@ export default function Player(): JSX.Element | null {
         key={src}
         ref={videoRef}
         className="player-video"
-        src={src}
+        src={isHls ? undefined : src}
         autoPlay
         onEnded={handleEnded}
         onPause={handlePause}
@@ -622,7 +652,7 @@ export default function Player(): JSX.Element | null {
           <span className="player-time">
             {formatTime(absoluteCurrent)} / {absoluteDuration ? formatTime(absoluteDuration) : '--:--'}
           </span>
-          {!directPlay && (
+          {method !== 'direct' && (
             <span className="player-transcode-badge">
               {method === 'remux' ? 'Direct stream' : 'Converting'}
             </span>

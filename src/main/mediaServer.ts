@@ -1761,7 +1761,15 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     // The desktop app's player (Chromium) has no HLS: its original-video
     // stream is /stream repackaging, and its conversion the /stream one.
     const desktop = req.query.client === 'desktop'
-    const path = desktop
+    // Desktop apps that play HLS (hls=1, 0.14.4 on) get the same keyframe-cut
+    // repackaging as the other apps, audio as AAC: one continuous
+    // /stream restarted at every skip couldn't keep picture and sound
+    // together on Windows.
+    const desktopHls =
+      desktop && req.query.hls === '1' && decision.method === 'remux' && (await fileKeyframes(filePath)) !== null
+    const path = desktopHls
+      ? `/hls/${mediaType}/${id}/index.m3u8?mode=remux&audio=${decision.audio === 'copy' ? 'copy' : 'aac'}`
+      : desktop
       ? `/stream/${mediaType}/${id}` +
         (decision.method === 'direct' ? '?direct=1' : decision.method === 'remux' ? '?copy=1' : '')
       : decision.method === 'direct'
