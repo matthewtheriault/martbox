@@ -212,6 +212,10 @@ function killRun(session: Session): void {
   session.run = null
 }
 
+function isLive(session: Session): boolean {
+  return sessions.get(session.id) === session
+}
+
 function stopSession(session: Session): void {
   sessions.delete(session.id)
   killRun(session)
@@ -236,6 +240,14 @@ const SESSION_DIR_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // (UUID-named) folders are touched, so pointing the cache at an existing
 // folder never deletes anything else in it.
 export function clearStaleHlsFolders(dir: string): void {
+  // Init files earlier Windows builds left in the working directory.
+  try {
+    for (const name of readdirSync(process.cwd())) {
+      if (/^init-\d+-\d+\.mp4$/.test(name)) rmSync(join(process.cwd(), name), { force: true })
+    }
+  } catch {
+    // Not readable; nothing to tidy.
+  }
   if (!existsSync(dir)) return
   for (const name of readdirSync(dir)) {
     if (SESSION_DIR_NAME.test(name) && !sessions.has(name)) {
@@ -449,12 +461,13 @@ async function startTranscodeRun(
     join(session.dir, `seg%05d.${segmentExt(session)}`),
     join(session.dir, playlist)
   ]
+  if (!isLive(session)) return
   const run = spawnRun(deps, session, startSegment, playlist, args)
   if (decodeArgs.length === 0) return
   // GPU decoding that fails before the first segment: switch it off and
   // carry on with the CPU.
   run.proc.on('exit', (code) => {
-    if (code === 0 || session.run !== run || session.completed.has(startSegment)) return
+    if (code === 0 || session.run !== run || !isLive(session) || session.completed.has(startSegment)) return
     deps.onDecodeFailure()
     void startTranscodeRun(deps, session, startSegment, rung, false)
   })
@@ -469,7 +482,10 @@ function spawnRun(
 ): Run {
   const startSeconds = session.starts[startSegment]
   deps.log(`HLS RUN session=${session.id} start=${startSeconds}s args=${JSON.stringify(args)}`)
-  const proc = spawn(deps.ffmpegPath, args)
+  // Run inside the session folder: ffmpeg's HLS writer puts the fMP4 init
+  // file next to the playlist by splitting the path at '/', which Windows
+  // paths don't have, so there it lands in the working directory instead.
+  const proc = spawn(deps.ffmpegPath, args, { cwd: session.dir })
   const run: Run = { proc, startSegment, playlist, exited: false, watcher: null }
   proc.stdout?.on('data', (chunk: Buffer) => {
     if (session.run !== run) return
@@ -681,6 +697,9 @@ function runHead(session: Session): number {
 }
 
 async function startRun(deps: HlsDeps, session: Session, startSegment: number): Promise<void> {
+  // A request still waiting on a session that's since been replaced or
+  // stopped must not start ffmpeg in its (deleted) folder.
+  if (!isLive(session)) return
   if (session.variant.kind === 'remux') startRemuxRun(deps, session, startSegment)
   else await startTranscodeRun(deps, session, startSegment, session.variant.rung)
 }
@@ -745,7 +764,7 @@ async function ensureInit(deps: HlsDeps, session: Session): Promise<string | nul
     return null
   }
   const deadline = Date.now() + SEGMENT_WAIT_MS
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && isLive(session)) {
     const found = find()
     if (found) return found
     if (!session.run || session.run.exited) {
@@ -753,7 +772,7 @@ async function ensureInit(deps: HlsDeps, session: Session): Promise<string | nul
     }
     await new Promise((r) => setTimeout(r, 150))
   }
-  return find()
+  return isLive(session) ? find() : null
 }
 
 async function sendFiles(
