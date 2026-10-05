@@ -5,6 +5,7 @@ import { ProfileProvider } from './lib/ProfileContext'
 import Sidebar from './components/Sidebar'
 import ServerVersionBanner from './components/ServerVersionBanner'
 import CommandPalette from './components/CommandPalette'
+import NowPlayingBar from './components/NowPlayingBar'
 
 const Home = lazy(() => import('./pages/Home'))
 const Movies = lazy(() => import('./pages/Movies'))
@@ -21,6 +22,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Search = lazy(() => import('./pages/Search'))
 const Collections = lazy(() => import('./pages/Collections'))
 const YearInReview = lazy(() => import('./pages/YearInReview'))
+const Music = lazy(() => import('./pages/Music'))
 
 export default function App(): JSX.Element {
   const location = useLocation()
@@ -53,9 +55,13 @@ export default function App(): JSX.Element {
                 <Route path="/collections" element={<Collections />} />
                 <Route path="/collections/:id" element={<Collections />} />
                 <Route path="/year" element={<YearInReview />} />
+                <Route path="/music" element={<Music />} />
+                <Route path="/music/album/:albumId" element={<Music />} />
+                <Route path="/music/artist/:artistId" element={<Music />} />
               </Routes>
             </Suspense>
           </main>
+          {!isPlayerRoute && <NowPlayingBar />}
           <CommandPalette />
         </div>
       </ProfileProvider>

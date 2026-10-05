@@ -66,7 +66,7 @@ const api = {
   library: {
     list: () => invoke<Library[]>('library:list'),
     pickFolder: () => invoke<string | null>('library:pickFolder'),
-    add: (path: string, type: 'movie' | 'tv') => invoke<Library>('library:add', path, type),
+    add: (path: string, type: 'movie' | 'tv' | 'music') => invoke<Library>('library:add', path, type),
     remove: (id: number) => invoke<void>('library:remove', id),
     scan: (id: number) => invoke<void>('library:scan', id),
     onScanProgress: (cb: (progress: ScanProgress) => void) => {

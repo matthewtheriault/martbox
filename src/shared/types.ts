@@ -112,7 +112,7 @@ export interface ShowSearchResult {
 export interface Library {
   id: number
   path: string
-  type: 'movie' | 'tv'
+  type: 'movie' | 'tv' | 'music'
   name: string
 }
 
@@ -609,4 +609,60 @@ export interface YearInReview {
   busiestDay: { day: string; seconds: number } | null
   longestStreak: number
   firstTitle: (YearInReviewTitle & { day: string }) | null
+}
+
+// Music (music.ts).
+export interface MusicArtist {
+  id: number
+  name: string
+  albumCount: number
+  // An album whose cover stands for the artist.
+  coverAlbumId: number | null
+}
+
+export interface MusicAlbum {
+  id: number
+  title: string
+  artistId: number
+  artist: string
+  year: number | null
+  trackCount: number
+  durationSeconds: number
+  hasCover: boolean
+  // Every track lossless (FLAC, ALAC, WAV…).
+  lossless: boolean
+  sampleRate: number | null
+  bitDepth: number | null
+  addedAt: string
+}
+
+export interface MusicTrack {
+  id: number
+  title: string
+  artist: string
+  albumArtist: string
+  albumId: number
+  album: string
+  trackNumber: number | null
+  discNumber: number
+  durationSeconds: number
+  codec: string | null
+  lossless: boolean
+  sampleRate: number | null
+  bitDepth: number | null
+  bitrateKbps: number | null
+  trackGain: number | null
+  albumGain: number | null
+  genre: string | null
+  hasCover: boolean
+}
+
+export interface MusicAlbumDetail extends MusicAlbum {
+  tracks: MusicTrack[]
+}
+
+export interface MusicSearchResults {
+  artists: MusicArtist[]
+  albums: MusicAlbum[]
+  tracks: MusicTrack[]
 }
