@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { spawn } from 'child_process'
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'fs'
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync, writeSync } from 'fs'
 import { basename, dirname, extname, join, relative, resolve } from 'path'
 import { crc32 } from 'zlib'
 import express from 'express'
@@ -318,9 +318,37 @@ async function packZip(out: string, entries: { name: string; path: string }[]): 
 
 const packing = new Map<number, Promise<string>>()
 
+// Packed discs are kept for the next play, up to this much in all; the
+// least recently played go first.
+const GAME_CACHE_LIMIT = 8 * 1024 * 1024 * 1024
+
+function trimGameCache(keep: string): void {
+  const dir = userDir('game-cache')
+  const files = readdirSync(dir)
+    .filter((n) => n.endsWith('.zip'))
+    .map((n) => join(dir, n))
+    .map((p) => ({ path: p, ...statSync(p) }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+  let total = files.reduce((sum, f) => sum + f.size, 0)
+  for (const f of files) {
+    if (total <= GAME_CACHE_LIMIT) break
+    if (f.path === keep) continue
+    try {
+      rmSync(f.path, { force: true })
+      total -= f.size
+    } catch {
+      /* still being sent (Windows keeps open files): next time */
+    }
+  }
+}
+
 function packedGame(r: any): Promise<string> {
   const out = packedPath(r.file_path)
-  if (existsSync(out)) return Promise.resolve(out)
+  if (existsSync(out)) {
+    const now = new Date()
+    utimesSync(out, now, now)
+    return Promise.resolve(out)
+  }
   const running = packing.get(r.id)
   if (running) return running
   const parts: string[] = JSON.parse(r.parts)
@@ -328,7 +356,10 @@ function packedGame(r: any): Promise<string> {
     { name: basename(r.file_path), path: r.file_path },
     ...parts.map((p) => ({ name: p, path: join(dirname(r.file_path), p) }))
   ])
-    .then(() => out)
+    .then(() => {
+      trimGameCache(out)
+      return out
+    })
     .finally(() => packing.delete(r.id))
   packing.set(r.id, job)
   return job
