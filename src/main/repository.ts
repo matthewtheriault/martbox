@@ -1,4 +1,5 @@
 import { sep } from 'path'
+import { genresFromDb, genresToDb } from './genres'
 import { noteProgress } from './watchLog'
 import { db, encryptValue, decryptValue } from './db'
 import { logError } from './errorLog'
@@ -27,14 +28,6 @@ import type { ParsedIptvChannel, ParsedProgramme } from './iptvParser'
 
 function rowToLibrary(r: any): Library {
   return { id: r.id, path: r.path, type: r.type, name: r.name }
-}
-
-function genresToDb(genres: string[] | undefined): string | null {
-  return genres && genres.length > 0 ? genres.join(', ') : null
-}
-
-function genresFromDb(stored: string | null): string[] {
-  return stored ? stored.split(', ').filter(Boolean) : []
 }
 
 function castFromDb(stored: string | null): CastMember[] {

@@ -2,6 +2,8 @@ import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { scanMusicLibrary } from './music'
 import { scanAudiobookLibrary } from './audiobooks'
 import { scanBookLibrary } from './books'
+import { scanGameLibrary } from './games'
+import { emulatorStatus, installEmulators } from './emulators'
 import { analyzeMarkersSoon } from './markers'
 import { basename, extname, join } from 'path'
 import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
@@ -136,6 +138,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('library:remove', (_e, id: number) => removeLibrary(id))
 
+  // Games: the emulators the server downloads (emulators.ts).
+  ipcMain.handle('games:emulators', () => emulatorStatus())
+  ipcMain.handle('games:installEmulators', async () => {
+    await installEmulators().catch(() => undefined)
+    return emulatorStatus()
+  })
+
   ipcMain.handle('library:scan', async (_e, id: number) => {
     await backupDatabase()
     const library = getLibrary(id)
@@ -153,6 +162,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     if (library?.type === 'book') {
       await scanBookLibrary(library, (progress) => {
+        mainWindow.webContents.send('library:scanProgress', progress)
+      })
+      return
+    }
+    if (library?.type === 'game') {
+      await scanGameLibrary(library, (progress) => {
         mainWindow.webContents.send('library:scanProgress', progress)
       })
       return

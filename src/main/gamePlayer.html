@@ -1,0 +1,180 @@
+<!doctype html>
+<!-- The game player (Phase 7), served at /emulator/player.html next to the
+     EmulatorJS files the server downloaded. Every app shows this page: the
+     desktop app directly, the phone apps in a web view. Saves go to the
+     server: straight there from the desktop app (?direct=1), and through the
+     app hosting the page otherwise ("player" message handler on iOS,
+     window.AndroidPlayer on Android), so the page never holds a sign-in. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>MartBox</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+  #game { position: fixed; top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left); right: env(safe-area-inset-right); }
+  #note { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); padding: 6px 12px; border-radius: 8px; background: rgba(0,0,0,.7);
+    color: #fff; font: 13px -apple-system, system-ui, sans-serif; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 10000; }
+  #note.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="note"></div>
+<script>
+const params = new URLSearchParams(location.search)
+const gameId = params.get('game')
+const direct = params.get('direct') === '1'
+const auth = () => `profileId=${encodeURIComponent(params.get('profileId') || '')}${params.get('pin') ? `&pin=${encodeURIComponent(params.get('pin'))}` : ''}`
+
+const toBase64 = (bytes) => {
+  let s = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+  return btoa(s)
+}
+const fromBase64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+
+function note(text) {
+  const el = document.getElementById('note')
+  el.textContent = text
+  el.classList.add('on')
+  clearTimeout(note.timer)
+  note.timer = setTimeout(() => el.classList.remove('on'), 1800)
+}
+
+// --- The host: the server itself, or the app around the page
+
+const pending = new Map()
+let nextId = 1
+function ask(msg) {
+  const id = nextId++
+  return new Promise((resolve) => {
+    pending.set(id, resolve)
+    tell({ ...msg, id })
+  })
+}
+function tell(msg) {
+  if (window.webkit && window.webkit.messageHandlers.player) window.webkit.messageHandlers.player.postMessage(msg)
+  else if (window.AndroidPlayer) window.AndroidPlayer.post(JSON.stringify(msg))
+}
+// The app answers a request: base64 data, or null.
+window.player = { reply(id, b64) { const r = pending.get(id); pending.delete(id); if (r) r(b64 ? fromBase64(b64) : null) } }
+
+const host = direct ? {
+  async load(kind, slot) {
+    const r = await fetch(`/api/games/${gameId}/${kind === 'save' ? 'save' : `states/${slot}`}?${auth()}`)
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null
+  },
+  async store(kind, slot, data, shot) {
+    const path = kind === 'save' ? 'save' : `states/${slot}`
+    const r = await fetch(`/api/games/${gameId}/${path}?${auth()}`, { method: 'PUT', body: data })
+    if (r.ok && shot) await fetch(`/api/games/${gameId}/states/${slot}/screenshot?${auth()}`, { method: 'PUT', body: shot })
+    return r.ok
+  },
+  exit() { parent.postMessage({ martboxGame: 'exit' }, '*') }
+} : {
+  load: (kind, slot) => ask({ type: 'load', kind, slot }),
+  store: async (kind, slot, data, shot) => !!(await ask({ type: 'store', kind, slot, data: toBase64(data), screenshot: shot ? toBase64(shot) : null })),
+  exit() { tell({ type: 'exit' }) }
+}
+
+// --- Saving
+
+let lastSave = null
+const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i])
+
+async function syncSave() {
+  const gm = window.EJS_emulator && EJS_emulator.gameManager
+  if (!gm || !started) return
+  let data
+  try { data = gm.getSaveFile() } catch (e) { return }
+  if (!data || !data.length || same(data, lastSave)) return
+  const copy = new Uint8Array(data)
+  if (await host.store('save', 0, copy)) lastSave = copy
+}
+
+async function quit() {
+  const gm = window.EJS_emulator && EJS_emulator.gameManager
+  if (gm && started) {
+    await syncSave()
+    // Slot 0: where you were, for Resume next time.
+    try { await host.store('state', 0, new Uint8Array(gm.getState()), null) } catch (e) {}
+  }
+  host.exit()
+}
+window.player.quit = quit
+// The desktop app asks through postMessage (the page is another origin there).
+window.addEventListener('message', (e) => { if (e.data && e.data.martboxGame === 'quit') quit() })
+
+let started = false
+
+// On-screen controls on touch screens, hidden while a controller is
+// connected, and never on a TV (?touch=0: TVs claim touch support anyway).
+function controllerChanged() {
+  const emu = window.EJS_emulator
+  if (!emu || !emu.toggleVirtualGamepad || !started) return
+  const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []
+  // EmulatorJS also shows them on anything it takes for a phone.
+  emu.toggleVirtualGamepad(params.get('touch') !== '0' && pads.length === 0 && (emu.touch || emu.isMobile))
+}
+window.addEventListener('gamepadconnected', controllerChanged)
+window.addEventListener('gamepaddisconnected', controllerChanged)
+setInterval(syncSave, 15000)
+document.addEventListener('visibilitychange', () => { if (document.hidden) syncSave() })
+
+// --- EmulatorJS
+
+window.EJS_player = '#game'
+window.EJS_core = params.get('core')
+window.EJS_gameUrl = params.get('url')
+window.EJS_gameName = params.get('name') || 'game'
+window.EJS_gameID = Number(gameId)
+window.EJS_pathtodata = './'
+window.EJS_startOnLoaded = true
+window.EJS_color = params.get('color') || '#3d8bff'
+window.EJS_backgroundColor = '#000000'
+window.EJS_language = 'en-US'
+window.EJS_disableAutoLang = true
+window.EJS_Buttons = { netplay: false, cacheManager: false, saveSavFiles: false, loadSavFiles: false, exitEmulation: false }
+
+window.EJS_onGameStart = async () => {
+  const gm = EJS_emulator.gameManager
+  const save = await host.load('save', 0)
+  const resume = params.get('resume') === '1' ? await host.load('state', 0) : null
+  if (save && save.length) {
+    const path = gm.getSaveFilePath()
+    const folder = path.substring(0, path.lastIndexOf('/'))
+    try { gm.FS.mkdirTree(folder) } catch (e) {}
+    gm.FS.writeFile(path, save)
+    gm.loadSaveFiles()
+    // The game has already booted without it: power-cycle so it reads the
+    // save (a resumed state replaces the whole machine anyway).
+    if (!resume || !resume.length) gm.restart()
+    lastSave = save
+  }
+  if (resume && resume.length) {
+    gm.loadState(resume)
+    note('Resumed where you left off')
+  }
+  started = true
+  controllerChanged()
+}
+
+// The menu's Save State / Load State use slot 1 on the server.
+window.EJS_onSaveState = async ({ state, screenshot }) => {
+  note((await host.store('state', 1, new Uint8Array(state), screenshot ? new Uint8Array(screenshot) : null)) ? 'State saved' : "Couldn't save the state")
+}
+window.EJS_onLoadState = async () => {
+  const state = await host.load('state', 1)
+  if (state && state.length) {
+    EJS_emulator.gameManager.loadState(state)
+    note('State loaded')
+  } else note('No saved state yet')
+}
+
+const s = document.createElement('script')
+s.src = 'loader.js'
+document.body.appendChild(s)
+</script>
+</body>
+</html>

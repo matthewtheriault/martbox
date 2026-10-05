@@ -86,7 +86,9 @@ export function isExpired(expiresAt: string, now = Date.now()): boolean {
 const PUBLIC_REMOTE_ROUTES = new Set(['/api/version', '/api/auth/me', '/api/auth/redeem'])
 
 export function isPublicRemoteRoute(path: string): boolean {
-  return PUBLIC_REMOTE_ROUTES.has(path)
+  // The game player page and the open-source emulators it loads (games.ts):
+  // nothing private, and the page's own requests can't carry a media link.
+  return PUBLIC_REMOTE_ROUTES.has(path) || (path.startsWith('/emulator/') && !path.includes('..'))
 }
 
 export function bearerToken(header: string | undefined): string | null {
@@ -147,6 +149,7 @@ export function isMediaRoute(path: string): boolean {
     /^\/api\/music\/(albums\/\d+\/cover|tracks\/\d+\/stream)$/.test(path) ||
     /^\/api\/audiobooks\/\d+\/(cover|files\/\d+\/stream)$/.test(path) ||
     /^\/api\/books\/\d+\/(cover|file|pages\/\d+)$/.test(path) ||
+    /^\/api\/games\/\d+\/(cover|file\/[^/]+)$/.test(path) ||
     MEDIA_PATH_PREFIXES.some((p) => path.startsWith(p))
   )
 }

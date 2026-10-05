@@ -112,7 +112,7 @@ export interface ShowSearchResult {
 export interface Library {
   id: number
   path: string
-  type: 'movie' | 'tv' | 'music' | 'audiobook' | 'book'
+  type: 'movie' | 'tv' | 'music' | 'audiobook' | 'book' | 'game'
   name: string
 }
 
@@ -770,4 +770,48 @@ export interface BookProgress {
   fraction: number
   finished: boolean
   updatedAt: string
+}
+
+// Retro games (games.ts). Games run on the player's own device; the server
+// keeps the files, box art and everyone's saves.
+export type GameSystem = 'gb' | 'gbc' | 'gba' | 'nes' | 'snes' | 'n64' | 'nds' | 'psx'
+
+export interface Game {
+  id: number
+  system: GameSystem
+  title: string
+  region: string | null
+  // Bytes the device downloads to play it.
+  size: number
+  hasCover: boolean
+  addedAt: string
+}
+
+// What a profile has saved for a game: the game's own save (`save`) and
+// save states by slot (0 is the automatic one taken on quitting).
+export interface GameSaveInfo {
+  gameId: number
+  kind: 'save' | 'state'
+  slot: number
+  size: number
+  hasScreenshot: boolean
+  updatedAt: string
+}
+
+export interface GameDetail extends Game {
+  // The EmulatorJS core that plays it.
+  core: string
+  // The name to fetch it under (/api/games/:id/file/:fileName): the
+  // emulator goes by its extension. Disc games come as one .zip.
+  fileName: string
+  saves: GameSaveInfo[]
+}
+
+// The emulators the server downloads when games are turned on.
+export interface EmulatorStatus {
+  state: 'missing' | 'downloading' | 'ready' | 'failed'
+  version: string
+  // 0–1 while downloading.
+  progress: number
+  message: string | null
 }
