@@ -169,12 +169,15 @@ export async function probeChapters(filePath: string): Promise<Chapter[]> {
 export async function keyframeAtOrBefore(
   filePath: string,
   seconds: number,
-  fileStartSeconds: number
+  fileStartSeconds: number,
+  // A skip forward from here: if the keyframe before `seconds` isn't past
+  // it, the first keyframe after it instead (or +10 could go nowhere).
+  after?: number
 ): Promise<number | null> {
   if (seconds <= 0) return 0
   // Keyframes are rarely more than ~10 s apart; 60 s back covers odd files.
   const from = Math.max(0, seconds - 60) + fileStartSeconds
-  const to = seconds + fileStartSeconds + 0.5
+  const to = seconds + fileStartSeconds + (after === undefined ? 0.5 : 30)
   try {
     const { stdout } = await execFileAsync(
       ffprobePath,
@@ -190,6 +193,7 @@ export async function keyframeAtOrBefore(
       { maxBuffer: 4 * 1024 * 1024 }
     )
     let best: number | null = null
+    let next: number | null = null
     for (const line of stdout.split('\n')) {
       const t = line
         .split(',')
@@ -198,7 +202,9 @@ export async function keyframeAtOrBefore(
       if (t === undefined) continue
       const rel = t - fileStartSeconds
       if (rel <= seconds + 0.0005 && (best === null || rel > best)) best = rel
+      if (after !== undefined && rel > after + 0.5 && (next === null || rel < next)) next = rel
     }
+    if (after !== undefined && (best === null || best <= after + 0.5) && next !== null) return next
     return best === null ? null : Math.max(0, best)
   } catch {
     return null
