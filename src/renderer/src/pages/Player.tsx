@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { Episode, EpisodeMarkers, MediaType } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { musicPlayer } from '../lib/musicPlayer'
+import { bookPlayer } from '../lib/bookPlayer'
 import { useProfile } from '../lib/ProfileContext'
 import { streamUrl, formatTime, desktopPlaybackQuery } from '../lib/media'
 
@@ -99,7 +100,10 @@ export default function Player(): JSX.Element | null {
   }
 
   // A video starting stops the music.
-  useEffect(() => musicPlayer.pause(), [])
+  useEffect(() => {
+    musicPlayer.pause()
+    bookPlayer.pause()
+  }, [])
 
   useEffect(() => {
     if (!mediaType || !id) return

@@ -391,15 +391,17 @@ function migrateDevicesForSpeed(): void {
 
 migrateDevicesForSpeed()
 
-// Music libraries (music.ts): the libraries table's type check gains
-// 'music'. SQLite can't change a CHECK in place, so the table is rebuilt —
-// with foreign keys off, or dropping it would cascade-delete every movie
-// and show that points at it.
-export function migrateLibrariesForMusic(database: Database.Database = db): void {
+// New kinds of library (music.ts, audiobooks.ts): the libraries table's
+// type check gains them. SQLite can't change a CHECK in place, so the table
+// is rebuilt — with foreign keys off, or dropping it would cascade-delete
+// every movie and show that points at it.
+const LIBRARY_TYPES = ['movie', 'tv', 'music', 'audiobook']
+
+export function migrateLibraryTypes(database: Database.Database = db): void {
   const row = database
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'libraries'")
     .get() as { sql: string } | undefined
-  if (!row || row.sql.includes("'music'")) return
+  if (!row || LIBRARY_TYPES.every((t) => row.sql.includes(`'${t}'`))) return
   const cols = (database.prepare('PRAGMA table_info(libraries)').all() as { name: string }[])
     .map((c) => c.name)
   const extra = cols.filter((c) => !['id', 'path', 'type', 'name'].includes(c))
@@ -411,7 +413,7 @@ export function migrateLibrariesForMusic(database: Database.Database = db): void
         CREATE TABLE libraries_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           path TEXT UNIQUE NOT NULL,
-          type TEXT NOT NULL CHECK (type IN ('movie', 'tv', 'music')),
+          type TEXT NOT NULL CHECK (type IN (${LIBRARY_TYPES.map((t) => `'${t}'`).join(', ')})),
           name TEXT NOT NULL
         );
         INSERT INTO libraries_new (id, path, type, name) SELECT id, path, type, name FROM libraries;
@@ -426,7 +428,7 @@ export function migrateLibrariesForMusic(database: Database.Database = db): void
   }
 }
 
-migrateLibrariesForMusic()
+migrateLibraryTypes()
 
 // Profile photos (avatars.ts): when the photo last changed.
 function migrateProfilesForPhoto(): void {

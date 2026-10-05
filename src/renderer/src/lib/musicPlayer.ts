@@ -1,3 +1,4 @@
+import { onFocusLost, takeFocus } from './audioFocus'
 import type { MusicTrack } from '../../../shared/types'
 
 // The desktop music player. Tracks are decoded whole with the Web Audio API
@@ -222,6 +223,7 @@ class MusicPlayer {
   }
 
   private async playIndex(index: number, offset: number): Promise<void> {
+    takeFocus('music')
     const generation = ++this.generation
     this.stopSources()
     const track = this.state.queue[index]
@@ -329,6 +331,7 @@ class MusicPlayer {
     } else if (!this.current) {
       await this.playIndex(this.state.index, this.state.positionSeconds)
     } else {
+      takeFocus('music')
       await ctx.resume()
       this.emit({ playing: true })
     }
@@ -412,3 +415,4 @@ class MusicPlayer {
 }
 
 export const musicPlayer = new MusicPlayer()
+onFocusLost('music', () => musicPlayer.pause())

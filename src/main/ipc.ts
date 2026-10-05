@@ -1,5 +1,6 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { scanMusicLibrary } from './music'
+import { scanAudiobookLibrary } from './audiobooks'
 import { analyzeMarkersSoon } from './markers'
 import { basename, extname, join } from 'path'
 import { copyFileSync, mkdirSync, unlinkSync } from 'fs'
@@ -92,6 +93,7 @@ import {
 import type {
   ChannelConfig,
   Collection,
+  Library,
   Profile,
   YearInReview,
   ChannelGuide,
@@ -127,7 +129,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('library:add', (_e, path: string, type: 'movie' | 'tv' | 'music') => {
+  ipcMain.handle('library:add', (_e, path: string, type: Library['type']) => {
     return addLibrary(path, type, basename(path))
   })
 
@@ -138,6 +140,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const library = getLibrary(id)
     if (library?.type === 'music') {
       await scanMusicLibrary(library, (progress) => {
+        mainWindow.webContents.send('library:scanProgress', progress)
+      })
+      return
+    }
+    if (library?.type === 'audiobook') {
+      await scanAudiobookLibrary(library, (progress) => {
         mainWindow.webContents.send('library:scanProgress', progress)
       })
       return
