@@ -837,3 +837,11 @@ export interface BackupStatus {
   lastRestore: { ok: boolean; name: string; at?: string; error?: string } | null
   running: boolean
 }
+
+// A playlist file (Spotify via Exportify, TuneMyMusic…) matched against the
+// server's music (playlistImportCore.ts).
+export interface PlaylistImportResult {
+  // One per playlist in the file that had at least one song found.
+  playlists: { id: number; name: string; matched: number; total: number }[]
+  missing: { playlist: string; title: string; artist: string }[]
+}
