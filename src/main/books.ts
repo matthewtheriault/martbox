@@ -8,8 +8,8 @@ import type { Express, Request, Response } from 'express'
 import ffmpegStatic from 'ffmpeg-static'
 import yauzl from 'yauzl'
 import SevenZip from '7z-wasm'
-import { db } from './db'
-import { comicInfoMeta, comicNameMeta, comicPages, epubMeta, formatOf, opfPath, type BookFormat, type BookMeta } from './booksCore'
+import { db, getSetting, setSetting } from './db'
+import { comicInfoMeta, comicNameMeta, comicPages, epubMeta, formatOf, opfPath, tidyAuthor, tidyBookMeta, type BookFormat, type BookMeta } from './booksCore'
 import { sortKey } from './musicCore'
 import type { Book, BookDetail, BookProgress, Library, ScanProgress } from '../shared/types'
 
@@ -49,6 +49,30 @@ db.exec(`
     PRIMARY KEY (profile_id, book_id)
   );
 `)
+
+// Books scanned before details were tidied (0.19.1) get tidied once, from
+// what's stored: no rescan needed.
+function tidyStoredBooks(): void {
+  if (getSetting('booksTidied') === '1') return
+  const rows = db.prepare('SELECT id, format, title, author, series, series_index FROM books').all() as {
+    id: number
+    format: string
+    title: string
+    author: string | null
+    series: string | null
+    series_index: string | null
+  }[]
+  const update = db.prepare('UPDATE books SET title = ?, sort_title = ?, author = ?, sort_author = ?, series = ?, series_index = ? WHERE id = ?')
+  db.transaction(() => {
+    for (const r of rows) {
+      const meta = { title: r.title, author: r.author, series: r.series, seriesIndex: r.series_index, year: null, description: null }
+      const t = r.format === 'comic' ? { ...meta, author: tidyAuthor(meta.author) } : tidyBookMeta(meta)
+      update.run(t.title, sortKey(t.title), t.author, sortKey(t.author ?? ''), t.series, t.seriesIndex, r.id)
+    }
+  })()
+  setSetting('booksTidied', '1')
+}
+tidyStoredBooks()
 
 function userDir(name: string): string {
   const d = join(app.getPath('userData'), name)
@@ -216,6 +240,7 @@ async function scanBook(library: Library, file: string, signature: string): Prom
     }
     // Comics' folders name series or publishers, not writers.
     if (format !== 'comic') meta.author = meta.author ?? folderAuthor(file, library.path)
+    meta = format === 'comic' ? { ...meta, author: tidyAuthor(meta.author) } : tidyBookMeta(meta)
     const existing = db.prepare('SELECT id FROM books WHERE file_path = ?').get(file) as { id: number } | undefined
     const values = [library.id, format, meta.title, sortKey(meta.title), meta.author, sortKey(meta.author ?? ''), meta.series, meta.seriesIndex,
       meta.year, meta.description, pages ? JSON.stringify(pages) : null, pageCount, signature]

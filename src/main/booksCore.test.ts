@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comicInfoMeta, comicNameMeta, comicPages, epubMeta, formatOf, opfPath } from './booksCore'
+import { comicInfoMeta, comicNameMeta, comicPages, epubMeta, formatOf, opfPath, tidyAuthor, tidyBookMeta } from './booksCore'
 
 describe('formats', () => {
   it('knows books from comics', () => {
@@ -68,5 +68,28 @@ describe('EPUB details', () => {
       <meta property="belongs-to-collection" id="c1">Saga Books</meta><meta refines="#c1" property="group-position">4</meta>
       </metadata><manifest><item id="x" href="cover.png" media-type="image/png" properties="cover-image"/></manifest></package>`
     expect(epubMeta(opf, 'content.opf', '/b/three.epub')).toMatchObject({ title: 'Three', series: 'Saga Books', seriesIndex: '4', coverPath: 'cover.png' })
+  })
+})
+
+describe('tidying book details', () => {
+  it('cleans up authors', () => {
+    expect(tidyAuthor('Golding, William')).toBe('William Golding')
+    expect(tidyAuthor('Rowling, J K')).toBe('J K Rowling')
+    expect(tidyAuthor('Andy Weir;')).toBe('Andy Weir')
+    expect(tidyAuthor('CHAPTER ONE')).toBeNull()
+    expect(tidyAuthor('Unknown')).toBeNull()
+    expect(tidyAuthor('Ann Author; Ed Writer')).toBe('Ann Author & Ed Writer')
+    expect(tidyAuthor('Ed Writer')).toBe('Ed Writer')
+    expect(tidyAuthor('Ed Writer, Jr.')).toBe('Ed Writer, Jr.')
+  })
+
+  it('splits a file name used as a title', () => {
+    const meta = { title: 'Writer, Ed - Test Saga 04 - The Fourth Test', author: 'Writer, Ed', series: null, seriesIndex: null, year: null, description: null }
+    expect(tidyBookMeta(meta)).toMatchObject({ title: 'The Fourth Test', author: 'Ed Writer', series: 'Test Saga', seriesIndex: '4' })
+  })
+
+  it('leaves ordinary titles with dashes alone', () => {
+    const meta = { title: 'Dune - The Graphic Novel', author: 'Ann Author', series: null, seriesIndex: null, year: null, description: null }
+    expect(tidyBookMeta(meta)).toMatchObject({ title: 'Dune - The Graphic Novel', author: 'Ann Author', series: null })
   })
 })
