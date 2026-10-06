@@ -64,11 +64,9 @@ The person running the server sends you an invite code (or a QR code). Install t
 in. It works the same at home or away, and nothing needs setting up on your router. Your device stays signed in
 until you sign out or the owner removes it.
 
-## Coming next
+## Maybe later
 
-- **Games on Apple TV**
-- **A fresh new look** across every app
-- **Maybe later:** a web browser version, downloads for offline use, and CarPlay / Android Auto
+- A web browser version, downloads for offline use, and CarPlay / Android Auto
 
 ## What's new
 
@@ -76,6 +74,7 @@ See [Releases](https://github.com/matthewtheriault/martbox/releases) for each up
 
 | Version | What it added |
 |---|---|
+| 0.20.0 | A fresh look on every app; Continue Watching shows each show once |
 | 0.19.0 | Retro games |
 | 0.18.0 | Books and comics |
 | 0.17.0 | Audiobooks |
