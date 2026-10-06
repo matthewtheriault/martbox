@@ -272,8 +272,16 @@ export default function Settings(): JSX.Element {
     refreshLibraries()
   }
 
+  // A scan that stopped to keep the library safe says why, under the library.
+  const [scanNotes, setScanNotes] = useState<Record<number, string>>({})
   const scanLibrary = async (id: number): Promise<void> => {
-    await window.api.library.scan(id)
+    setScanNotes(({ [id]: _old, ...rest }) => rest)
+    try {
+      await window.api.library.scan(id)
+    } catch (e) {
+      const message = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)
+      setScanNotes((n) => ({ ...n, [id]: message }))
+    }
   }
 
   const saveKey = async (): Promise<void> => {
@@ -994,12 +1002,15 @@ export default function Settings(): JSX.Element {
                     <div>
                       <div className="library-name">
                         {lib.name} <span className="library-type">({lib.type})</span>
-                        <span className="library-type">
-                          {' — '}
-                          {libraryCounts[lib.id] ?? 0} {lib.type === 'movie' ? 'movies' : 'shows'}
-                        </span>
+                        {(lib.type === 'movie' || lib.type === 'tv') && (
+                          <span className="library-type">
+                            {' — '}
+                            {libraryCounts[lib.id] ?? 0} {lib.type === 'movie' ? 'movies' : 'shows'}
+                          </span>
+                        )}
                       </div>
                       <div className="library-path">{lib.path}</div>
+                      {scanNotes[lib.id] && <div className="library-scan-status settings-status-error">{scanNotes[lib.id]}</div>}
                       {progress && progress.phase !== 'done' && (
                         <div className="library-scan-status">
                           {progress.phase === 'scanning'

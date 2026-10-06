@@ -154,3 +154,50 @@ export function epubMeta(opfXml: string, opfFile: string, file: string): EpubPac
     coverPath: cover ? posix.normalize(posix.join(dir === '.' ? '' : dir, decodeURIComponent(cover.href))) : null
   }
 }
+
+// --- Tidying details that come from the files
+
+// Placeholders some tools write where an author should be.
+const NOT_AN_AUTHOR = /^(unknown( author)?|anonymous|author|n\/?a|none|chapter\b.*|part\b.*|contents)$/i
+
+const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+// "Golding, William" → "William Golding"; "Weir;" → "Weir"; "CHAPTER ONE" → null.
+export function tidyAuthor(author: string | null): string | null {
+  if (!author) return null
+  let a = author.replace(/\s+/g, ' ').trim().replace(/^[;,:&\s]+|[;,:&\s]+$/g, '')
+  if (!a || NOT_AN_AUTHOR.test(a)) return null
+  // Several authors in one field: keep them, tidy each.
+  const several = a.split(/\s*;\s*|\s+&\s+|\s+and\s+/).filter(Boolean)
+  if (several.length > 1) return several.map((one) => tidyAuthor(one)).filter(Boolean).join(' & ') || null
+  const flipped = /^([^,\d]+),\s*([^,\d]+)$/.exec(a)
+  // Not "Smith, Jr." or "Penguin, Inc.": those commas aren't surname-first.
+  if (flipped && !/^(jr|sr|ii|iii|iv|inc|ltd|llc|co|phd|md)\.?$/i.test(flipped[2].trim())) a = `${flipped[2].trim()} ${flipped[1].trim()}`
+  return a
+}
+
+// A title that is really a file name — "Rowling, J.K - Harry Potter 04 -
+// Harry Potter and the Goblet of Fire" — split into author, series, number
+// and title.
+export function tidyBookMeta(meta: BookMeta): BookMeta {
+  let { title, author, series, seriesIndex } = meta
+  author = tidyAuthor(author)
+  const parts = title.split(/\s+-\s+/)
+  if (parts.length >= 2) {
+    const first = tidyAuthor(parts[0])
+    // The first part names the author: the one we have, or "Last, First" when we have none.
+    if (first && ((author && squash(first) === squash(author)) || (!author && /,/.test(parts[0])))) {
+      author ??= first
+      parts.shift()
+    }
+    // "Series 04 - Title"
+    const numbered = parts.length >= 2 ? /^(.+?)\s+#?(\d+(?:\.\d+)?)$/.exec(parts[0]) : null
+    if (numbered) {
+      series ??= numbered[1].trim()
+      seriesIndex ??= String(parseFloat(numbered[2]))
+      parts.shift()
+    }
+    title = parts.join(' - ')
+  }
+  return { ...meta, title: title.trim() || meta.title, author, series, seriesIndex }
+}

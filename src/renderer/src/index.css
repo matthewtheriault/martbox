@@ -3653,6 +3653,8 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Cards don't stretch their text, so a long title would run into the next card. */
+  max-width: 100%;
 }
 
 .music-album-sub {
@@ -3661,6 +3663,7 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .music-album-hero {
