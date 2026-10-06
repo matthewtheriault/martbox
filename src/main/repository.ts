@@ -1,5 +1,6 @@
 import { sep } from 'path'
 import { genresFromDb, genresToDb } from './genres'
+import { pickContinueWatching, type NextEpisode, type ProgressRow } from './continueWatchingCore'
 import { noteProgress } from './watchLog'
 import { db, encryptValue, decryptValue } from './db'
 import { logError } from './errorLog'
@@ -843,27 +844,53 @@ export function getContinueWatching(
   limit = 20,
   _pin?: string | null
 ): ContinueWatchingItem[] {
-  const rows = db
-    .prepare(
-      `SELECT wp.media_type, wp.media_id, wp.position_seconds, wp.duration_seconds, wp.updated_at
-       FROM watch_progress wp
-       WHERE wp.profile_id = ? AND wp.watched = 0 AND wp.position_seconds > 0
-       ORDER BY wp.updated_at DESC
-       LIMIT ?`
-    )
-    .all(profileId, limit) as any[]
+  // Movies part-way through, and every episode started or finished: a
+  // show's most recent one decides what it shows (continueWatchingCore.ts).
+  const rows = (
+    db
+      .prepare(
+        `SELECT wp.media_type, wp.media_id, wp.position_seconds, wp.duration_seconds, wp.watched, wp.updated_at, e.show_id
+         FROM watch_progress wp
+         LEFT JOIN episodes e ON wp.media_type = 'episode' AND e.id = wp.media_id
+         WHERE wp.profile_id = ?
+           AND ((wp.watched = 0 AND wp.position_seconds > 0) OR (wp.media_type = 'episode' AND wp.watched = 1))
+         ORDER BY wp.updated_at DESC, e.season_number DESC, e.episode_number DESC`
+      )
+      .all(profileId) as any[]
+  ).map(
+    (r): ProgressRow => ({
+      mediaType: r.media_type,
+      mediaId: r.media_id,
+      positionSeconds: r.position_seconds,
+      durationSeconds: r.duration_seconds,
+      watched: !!r.watched,
+      updatedAt: r.updated_at,
+      showId: r.show_id ?? null
+    })
+  )
+
+  const nextAfter = (episodeId: number): NextEpisode | null => {
+    const current = getEpisode(episodeId)
+    if (!current) return null
+    const episodes = listEpisodes(current.showId)
+    for (const ep of episodes.slice(episodes.findIndex((e) => e.id === episodeId) + 1)) {
+      const progress = getProgress(profileId, 'episode', ep.id)
+      if (!progress?.watched) return { id: ep.id, durationSeconds: ep.durationSeconds ?? null, positionSeconds: progress?.positionSeconds ?? 0 }
+    }
+    return null
+  }
 
   const items: ContinueWatchingItem[] = []
-  for (const row of rows) {
-    if (row.media_type === 'movie') {
-      const movie = getMovie(row.media_id)
+  for (const pick of pickContinueWatching(rows, nextAfter, limit)) {
+    if (pick.mediaType === 'movie') {
+      const movie = getMovie(pick.mediaId)
       if (!movie) continue
       items.push({
         mediaType: 'movie',
         mediaId: movie.id,
-        positionSeconds: row.position_seconds,
-        durationSeconds: row.duration_seconds,
-        updatedAt: row.updated_at,
+        positionSeconds: pick.positionSeconds,
+        durationSeconds: pick.durationSeconds,
+        updatedAt: pick.updatedAt,
         title: movie.title,
         subtitle: movie.year ? String(movie.year) : null,
         posterPath: movie.posterPath,
@@ -873,15 +900,15 @@ export function getContinueWatching(
         episodeNumber: null
       })
     } else {
-      const episode = getEpisode(row.media_id)
+      const episode = getEpisode(pick.mediaId)
       if (!episode) continue
       const show = getShow(episode.showId)
       items.push({
         mediaType: 'episode',
         mediaId: episode.id,
-        positionSeconds: row.position_seconds,
-        durationSeconds: row.duration_seconds,
-        updatedAt: row.updated_at,
+        positionSeconds: pick.positionSeconds,
+        durationSeconds: pick.durationSeconds,
+        updatedAt: pick.updatedAt,
         title: show?.title ?? episode.title,
         subtitle: `S${episode.seasonNumber}:E${episode.episodeNumber} ${episode.title}`,
         posterPath: show?.posterPath ?? null,

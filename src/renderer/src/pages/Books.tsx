@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { Book, BookDetail, BookProgress } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
+import ArtTint from '../components/ArtTint'
 
 // Books and comics (Phase 6): the library with Continue Reading, and a
 // book's page. Reading happens full-screen in pages/Reader.tsx.
@@ -187,7 +188,8 @@ function BookPage({ id }: { id: number }): JSX.Element {
   }
 
   return (
-    <div className="page music-page">
+    <div className="page music-page art-host">
+      <ArtTint query={book.hasCover ? `kind=book&id=${book.id}` : null} />
       <button className="link-button" onClick={() => navigate(-1)}>
         ← Back
       </button>

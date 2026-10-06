@@ -152,35 +152,35 @@ export default function Sidebar(): JSX.Element {
         />
       </div>
       <nav className="sidebar-nav">
-        <NavLink to="/" end className="sidebar-link">
+        <NavLink to="/" end className="sidebar-link" data-media="movies">
           <Icon name="home" />
           <span>Home</span>
         </NavLink>
-        <NavLink to="/movies" className="sidebar-link">
+        <NavLink to="/movies" className="sidebar-link" data-media="movies">
           <Icon name="film" />
           <span>Movies</span>
         </NavLink>
-        <NavLink to="/tv" className="sidebar-link">
+        <NavLink to="/tv" className="sidebar-link" data-media="movies">
           <Icon name="tv" />
           <span>TV Shows</span>
         </NavLink>
-        <NavLink to="/music" className="sidebar-link">
+        <NavLink to="/music" className="sidebar-link" data-media="music">
           <Icon name="music" />
           <span>Music</span>
         </NavLink>
-        <NavLink to="/audiobooks" className="sidebar-link">
+        <NavLink to="/audiobooks" className="sidebar-link" data-media="books">
           <Icon name="book" />
           <span>Audiobooks</span>
         </NavLink>
-        <NavLink to="/books" className="sidebar-link">
+        <NavLink to="/books" className="sidebar-link" data-media="books">
           <Icon name="books" />
           <span>Books</span>
         </NavLink>
-        <NavLink to="/games" className="sidebar-link">
+        <NavLink to="/games" className="sidebar-link" data-media="games">
           <Icon name="games" />
           <span>Games</span>
         </NavLink>
-        <NavLink to="/collections" className="sidebar-link">
+        <NavLink to="/collections" className="sidebar-link" data-media="movies">
           <Icon name="collections" />
           <span>Collections</span>
         </NavLink>
@@ -194,11 +194,11 @@ export default function Sidebar(): JSX.Element {
           <Icon name="year" />
           <span>Your Year</span>
         </NavLink>
-        <NavLink to="/live" className="sidebar-link">
+        <NavLink to="/live" className="sidebar-link" data-media="movies">
           <Icon name="live" />
           <span>Live</span>
         </NavLink>
-        <NavLink to="/requests" className="sidebar-link">
+        <NavLink to="/requests" className="sidebar-link" data-media="movies">
           <Icon name="requests" />
           <span>Requests</span>
         </NavLink>

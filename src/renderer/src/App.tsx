@@ -29,6 +29,15 @@ const Collections = lazy(() => import('./pages/Collections'))
 const YearInReview = lazy(() => import('./pages/YearInReview'))
 const Music = lazy(() => import('./pages/Music'))
 
+// Which media type a page belongs to: it sets the page's colours (index.css, data-media).
+function mediaOf(pathname: string): string | undefined {
+  if (/^\/(music)(\/|$)/.test(pathname)) return 'music'
+  if (/^\/(games|play-game)(\/|$)/.test(pathname)) return 'games'
+  if (/^\/(books|read|audiobooks)(\/|$)/.test(pathname)) return 'books'
+  if (/^\/($|movies|tv|movie|show|live|collections|search|requests)/.test(pathname)) return 'movies'
+  return undefined
+}
+
 export default function App(): JSX.Element {
   const location = useLocation()
   // Full-screen pages: the player, watching a Live Channel, reading and playing a game.
@@ -43,7 +52,7 @@ export default function App(): JSX.Element {
       <ProfileProvider>
         <div className={isPlayerRoute ? 'app-shell app-shell-immersive' : 'app-shell'}>
           {!isPlayerRoute && <Sidebar />}
-          <main className={isPlayerRoute ? 'app-content app-content-full' : 'app-content'}>
+          <main className={isPlayerRoute ? 'app-content app-content-full' : 'app-content'} data-media={mediaOf(location.pathname)}>
             {!isPlayerRoute && <ServerVersionBanner />}
             <Suspense fallback={<div className="route-loading" />}>
               <Routes>

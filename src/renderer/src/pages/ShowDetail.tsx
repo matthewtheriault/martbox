@@ -11,6 +11,7 @@ import FilePathRow from '../components/FilePathRow'
 import CastCrew from '../components/CastCrew'
 import WatchlistButton from '../components/WatchlistButton'
 import AddToCollection from '../components/AddToCollection'
+import ArtTint from '../components/ArtTint'
 
 export default function ShowDetail(): JSX.Element | null {
   const { id } = useParams()
@@ -101,7 +102,8 @@ export default function ShowDetail(): JSX.Element | null {
   if (!show) return null
 
   return (
-    <div className="detail-page">
+    <div className="detail-page art-host">
+      <ArtTint query={show.backdropPath || show.posterPath ? `kind=image&path=${encodeURIComponent(show.backdropPath || show.posterPath || '')}` : null} />
       {show.backdropPath && (
         <div
           className="detail-backdrop"

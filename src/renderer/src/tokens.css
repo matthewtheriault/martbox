@@ -20,6 +20,14 @@
   --accent-ink: #000000;
   --accent-wash: rgba(90, 200, 250, 0.16);
   --accent-glow: rgba(90, 200, 250, 0.4);
+  --media-movies-start: #ff4d8d;
+  --media-movies-end: #ff8a3d;
+  --media-music-start: #22d3ee;
+  --media-music-end: #3b82f6;
+  --media-games-start: #bef264;
+  --media-games-end: #22c55e;
+  --media-books-start: #fcd34d;
+  --media-books-end: #f59e0b;
   --danger: #ff5470;
   --danger-text: #ff8296;
   --danger-fill: rgba(255, 84, 112, 0.14);

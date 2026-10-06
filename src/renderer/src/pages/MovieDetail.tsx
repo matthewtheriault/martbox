@@ -11,6 +11,7 @@ import FilePathRow from '../components/FilePathRow'
 import CastCrew from '../components/CastCrew'
 import WatchlistButton from '../components/WatchlistButton'
 import AddToCollection from '../components/AddToCollection'
+import ArtTint from '../components/ArtTint'
 
 export default function MovieDetail(): JSX.Element | null {
   const { id } = useParams()
@@ -44,7 +45,8 @@ export default function MovieDetail(): JSX.Element | null {
   }
 
   return (
-    <div className="detail-page">
+    <div className="detail-page art-host">
+      <ArtTint query={movie.backdropPath || movie.posterPath ? `kind=image&path=${encodeURIComponent(movie.backdropPath || movie.posterPath || '')}` : null} />
       {movie.backdropPath && (
         <div
           className="detail-backdrop"

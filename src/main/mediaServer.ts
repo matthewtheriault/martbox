@@ -4,6 +4,7 @@ import { registerMusicPersonalRoutes } from './musicPersonal'
 import { registerAudiobookRoutes } from './audiobooks'
 import { registerBookRoutes } from './books'
 import { registerGameRoutes } from './games'
+import { artColor } from './artColor'
 import { yearInReview } from './watchLog'
 import { avatarPath, removeAvatar, saveAvatar } from './avatars'
 import {
@@ -127,7 +128,7 @@ import {
 import { FailureLimiter, bearerToken, isMediaRoute, isPublicRemoteRoute } from './authCore'
 import { revokeGuestDevicesByAddr } from './tailscaleApi'
 import { logError } from './errorLog'
-import { deleteSetting, getSetting, setSetting } from './db'
+import { db, deleteSetting, getSetting, setSetting } from './db'
 import type {
   DashboardSnapshot,
   MediaType,
@@ -350,6 +351,18 @@ export function setUploadCapacityMbps(mbps: number | null): void {
 
 export function isRemoteLoginRequired(): boolean {
   return getSetting('remoteRequireLogin') === '1'
+}
+
+// Windows' filesystem is case-insensitive, but Electron's userData path
+// (and thus imageCacheDir) can resolve with different casing between
+// launches (e.g. "MartBox" vs "martbox") even though both point at the
+// same folder — compare case-insensitively on win32 so a legitimate
+// cached image never gets rejected as if it were a path-traversal attempt.
+function isWithinImageCache(resolved: string, imageCacheDir: string): boolean {
+  const cacheDirPrefix = resolve(imageCacheDir) + sep
+  return process.platform === 'win32'
+    ? resolved.toLowerCase().startsWith(cacheDirPrefix.toLowerCase())
+    : resolved.startsWith(cacheDirPrefix)
 }
 
 function authenticate(req: express.Request, res: express.Response, next: express.NextFunction): void {
@@ -1887,6 +1900,29 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
     }
   })
 
+  // The colour of a poster, backdrop or cover (artColor.ts), to tint its page:
+  // ?kind=image&path=<cached image> or ?kind=album|book|game|audiobook&id=N.
+  app.get('/api/art-color', async (req, res) => {
+    const kind = String(req.query.kind ?? '')
+    let file: string | null = null
+    if (kind === 'image') {
+      const raw = typeof req.query.path === 'string' ? resolve(req.query.path) : ''
+      file = raw && isWithinImageCache(raw, imageCacheDir) ? raw : null
+    } else {
+      const table = ({ album: 'music_albums', book: 'books', game: 'games', audiobook: 'audiobooks' } as Record<string, string>)[kind]
+      const id = parseInt(String(req.query.id), 10)
+      if (table && Number.isInteger(id)) {
+        file = (db.prepare(`SELECT cover_path FROM ${table} WHERE id = ?`).get(id) as { cover_path: string | null } | undefined)?.cover_path ?? null
+      }
+    }
+    if (!file || !existsSync(file)) {
+      res.status(404).json({ color: null })
+      return
+    }
+    res.setHeader('Cache-Control', 'private, max-age=86400')
+    res.json({ color: await artColor(file) })
+  })
+
   app.get('/image', (req, res) => {
     const raw = req.query.path as string
     if (!raw) {
@@ -1894,17 +1930,7 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       return
     }
     const resolved = resolve(raw)
-    const cacheDirPrefix = resolve(imageCacheDir) + sep
-    // Windows' filesystem is case-insensitive, but Electron's userData path
-    // (and thus imageCacheDir) can resolve with different casing between
-    // launches (e.g. "MartBox" vs "martbox") even though both point at the
-    // same folder — compare case-insensitively on win32 so a legitimate
-    // cached image never gets rejected as if it were a path-traversal attempt.
-    const isWithinCacheDir =
-      process.platform === 'win32'
-        ? resolved.toLowerCase().startsWith(cacheDirPrefix.toLowerCase())
-        : resolved.startsWith(cacheDirPrefix)
-    if (!isWithinCacheDir) {
+    if (!isWithinImageCache(resolved, imageCacheDir)) {
       res.status(403).end()
       return
     }
