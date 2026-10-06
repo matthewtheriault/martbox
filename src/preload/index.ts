@@ -17,6 +17,8 @@ import type {
   RequestableTitle,
   AppSettings,
   AppUpdateStatus,
+  BackupInfo,
+  BackupStatus,
   Collection,
   ContinueWatchingItem,
   Episode,
@@ -316,6 +318,18 @@ const api = {
       invoke<{ path: string; isDefault: boolean }>('settings:getTranscodeCacheDir'),
     chooseTranscodeCacheDir: () => invoke<string | null>('settings:chooseTranscodeCacheDir'),
     resetTranscodeCacheDir: () => invoke<string>('settings:resetTranscodeCacheDir')
+  },
+  backups: {
+    status: (requestingProfileId: number) => invoke<BackupStatus>('backups:status', requestingProfileId),
+    backUpNow: (requestingProfileId: number) => invoke<BackupStatus>('backups:backUpNow', requestingProfileId),
+    chooseCopyFolder: (requestingProfileId: number) =>
+      invoke<BackupStatus>('backups:chooseCopyFolder', requestingProfileId),
+    clearCopyFolder: (requestingProfileId: number) =>
+      invoke<BackupStatus>('backups:clearCopyFolder', requestingProfileId),
+    pickFromCopyFolder: (requestingProfileId: number) =>
+      invoke<BackupInfo | null>('backups:pickFromCopyFolder', requestingProfileId),
+    restore: (requestingProfileId: number, name: string) =>
+      invoke<void>('backups:restore', requestingProfileId, name)
   },
   media: {
     serverPort: () => invoke<number>('media:serverPort')

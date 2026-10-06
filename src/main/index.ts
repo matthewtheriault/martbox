@@ -12,6 +12,7 @@ import { getSetting } from './db'
 import { logError } from './errorLog'
 import { sweepOrphanedImages } from './imageCache'
 import { getUpdateStatus, initAutoUpdates, installUpdateNow, onUpdateStatus } from './autoUpdate'
+import { startBackupSchedule } from './backups'
 import type { RemoteAccessStatus } from '../shared/remoteAccess'
 import './db'
 
@@ -140,6 +141,7 @@ async function createWindow(): Promise<void> {
   // re-check daily rather than requiring a restart to reclaim space.
   sweepOrphanedImages(imageCacheDir)
   setInterval(() => sweepOrphanedImages(imageCacheDir), 24 * 60 * 60 * 1000)
+  startBackupSchedule()
 
   registerIpcHandlers(mainWindow)
 
