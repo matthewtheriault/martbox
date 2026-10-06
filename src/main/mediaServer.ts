@@ -104,7 +104,7 @@ import {
   markLibrarySeen
 } from './repository'
 import { probeFile, canDirectPlay, keyframeAtOrBefore, type MediaProbe } from './ffprobe'
-import { readMkvKeyframes } from './mkvKeyframes'
+import { readMkvIndex, type MkvIndex } from './mkvKeyframes'
 import {
   decidePlayback,
   type ClientCaps,
@@ -746,17 +746,27 @@ async function hlsVideoArgs(
   return [...scale, ...encoderArgs, ...rate]
 }
 
-// Keyframe indexes are read once per file; only MKV/WebM carry one.
-const keyframeCache = new Map<string, Promise<number[] | null>>()
+// Indexes are read once per file; only MKV/WebM carry one.
+const indexCache = new Map<string, Promise<MkvIndex>>()
 
-function fileKeyframes(filePath: string): Promise<number[] | null> {
-  if (!/\.(mkv|webm)$/i.test(filePath)) return Promise.resolve(null)
-  let cached = keyframeCache.get(filePath)
+function fileIndex(filePath: string): Promise<MkvIndex> {
+  if (!/\.(mkv|webm)$/i.test(filePath)) return Promise.resolve({ keyframes: null, peakKbps: null })
+  let cached = indexCache.get(filePath)
   if (!cached) {
-    cached = readMkvKeyframes(filePath)
-    keyframeCache.set(filePath, cached)
+    cached = readMkvIndex(filePath)
+    indexCache.set(filePath, cached)
   }
   return cached
+}
+
+async function fileKeyframes(filePath: string): Promise<number[] | null> {
+  return (await fileIndex(filePath)).keyframes
+}
+
+// ?cap=720: a player stepping down after stalls (see decidePlayback).
+function capHeightFrom(value: unknown): number | null {
+  const height = parseInt(String(value ?? ''), 10)
+  return Number.isFinite(height) && height > 0 ? height : null
 }
 
 // What a player said it can decode, from /api/playback's query.
@@ -790,6 +800,9 @@ function bandwidthFor(res: express.Response, query: express.Request['query']): n
   if (!Number.isFinite(testedAt) || Date.now() - testedAt > SAVED_SPEED_MAX_AGE_MS) return null
   return speedMbps * 1000
 }
+
+// How long an idle player connection stays open (see listen()).
+const KEEP_ALIVE_MS = 65_000
 
 export const DEFAULT_HLS_CACHE_DIR = join(tmpdir(), 'martbox-hls')
 
@@ -1779,7 +1792,9 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       // keyframe index (HLS remuxing does).
       canRemux: req.query.client === 'desktop' || (await fileKeyframes(filePath)) !== null,
       avoid,
-      hevcEncode: (await detectHevcEncoder()) !== null
+      hevcEncode: (await detectHevcEncoder()) !== null,
+      peakKbps: (await fileIndex(filePath)).peakKbps,
+      capHeight: capHeightFrom(req.query.cap)
     })
     // The desktop app's player (Chromium) has no HLS: its original-video
     // stream is /stream repackaging, and its conversion the /stream one.
@@ -1826,7 +1841,11 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       method: decision.method,
       path: hlsPath,
       reason: decision.reason,
-      durationSeconds: probe.durationSeconds
+      durationSeconds: probe.durationSeconds,
+      // The picture's height as sent, so a player that keeps stalling knows
+      // which quality to step down to (it asks again with ?quality= one
+      // lower).
+      height: decision.method === 'transcode' ? decision.rung!.height : probe.height
     })
   })
 
@@ -1960,6 +1979,12 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
         const address = s.address()
         resolveListen({ server: s, port: typeof address === 'object' && address ? address.port : 0 })
       })
+      // Node closes an idle connection after 5 s by default. Players fetch
+      // a repackaged segment every 6–10 s, so each fetch opened a new
+      // connection through the tunnel and started slow; keep them for a
+      // minute instead (headers timeout must be longer than this).
+      s.keepAliveTimeout = KEEP_ALIVE_MS
+      s.headersTimeout = KEEP_ALIVE_MS + 1000
     })
 
   return (async () => {

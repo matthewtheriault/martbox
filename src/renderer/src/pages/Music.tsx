@@ -9,7 +9,8 @@ import type {
   MusicPlaylist,
   MusicPlaylistDetail,
   MusicSearchResults,
-  MusicTrack
+  MusicTrack,
+  PlaylistImportResult
 } from '../../../shared/types'
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
@@ -301,6 +302,7 @@ function MusicHome(): JSX.Element {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [newName, setNewName] = useState('')
+  const [playlistsVersion, setPlaylistsVersion] = useState(0)
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 200)
     return () => clearTimeout(t)
@@ -310,7 +312,7 @@ function MusicHome(): JSX.Element {
   const artists = useMusicApi<MusicArtist[]>(tab === 'artists' ? '/api/music/artists' : null)
   const songs = useMusicApi<MusicTrack[]>(tab === 'songs' ? '/api/music/tracks?limit=5000' : null)
   const genres = useMusicApi<MusicGenre[]>(tab === 'genres' ? '/api/music/genres' : null)
-  const playlists = useMusicApi<MusicPlaylist[]>(tab === 'playlists' ? `/api/music/playlists?${who}` : null)
+  const playlists = useMusicApi<MusicPlaylist[]>(tab === 'playlists' ? `/api/music/playlists?${who}` : null, playlistsVersion)
   const search = useMusicApi<MusicSearchResults>(debounced ? `/api/music/search?q=${encodeURIComponent(debounced)}` : null)
   const recent = useMemo(
     () => [...(albums ?? [])].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 12),
@@ -477,6 +479,7 @@ function MusicHome(): JSX.Element {
                   New Playlist
                 </button>
               </div>
+              <ImportPlaylist onImported={() => setPlaylistsVersion((v) => v + 1)} />
               <div className="music-grid">
                 {(listening?.recentTracks.length ?? 0) > 0 && (
                   <button className="music-album-card" onClick={() => navigate('/music/listening/recent')}>
@@ -502,6 +505,103 @@ function MusicHome(): JSX.Element {
             </>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// Import Playlist: a CSV exported from Spotify (exportify.app), TuneMyMusic
+// or the like becomes playlists of the songs on the server; songs that
+// aren't there are listed, so they can be added later.
+function ImportPlaylist({ onImported }: { onImported: () => void }): JSX.Element {
+  const port = usePort()
+  const { body: who } = useMusicProfile()
+  const navigate = useNavigate()
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<PlaylistImportResult | null>(null)
+  const [showMissing, setShowMissing] = useState(false)
+
+  const importFile = async (file: File): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    setShowMissing(false)
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/music/playlists/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...who, name: file.name.replace(/\.csv$/i, ''), csv: await file.text() })
+      })
+      const body = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(body?.error ?? 'Couldn’t import that file')
+      setResult(body as PlaylistImportResult)
+      onImported()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Couldn’t import that file')
+    } finally {
+      setBusy(false)
+      if (input.current) input.current.value = ''
+    }
+  }
+
+  // Name the playlist beside each missing song when the file held several.
+  const severalPlaylists =
+    result !== null && new Set([...result.playlists.map((p) => p.name), ...result.missing.map((m) => m.playlist)]).size > 1
+
+  return (
+    <div className="music-import">
+      <div className="music-import-row">
+        <button className="btn-secondary" disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? 'Importing…' : 'Import Playlist…'}
+        </button>
+        <span className="music-import-hint">
+          A CSV file from Spotify (export it at exportify.app), TuneMyMusic or Soundiiz. Songs are matched to
+          the music on the server.
+        </span>
+        <input
+          ref={input}
+          type="file"
+          accept=".csv,text/csv"
+          hidden
+          onChange={(e) => e.target.files?.[0] && void importFile(e.target.files[0])}
+        />
+      </div>
+      {error && <p className="settings-status-error">{error}</p>}
+      {result && (
+        <div className="music-import-result">
+          {result.playlists.length === 0 ? (
+            <p>None of those songs are on the server yet.</p>
+          ) : (
+            result.playlists.map((p) => (
+              <p key={p.id}>
+                <button className="link-button" onClick={() => navigate(`/music/playlist/${p.id}`)}>
+                  {p.name}
+                </button>
+                : {p.matched === p.total ? `all ${p.total} songs found` : `${p.matched} of ${p.total} songs found`}
+              </p>
+            ))
+          )}
+          {result.missing.length > 0 && (
+            <>
+              <button className="link-button" onClick={() => setShowMissing((v) => !v)}>
+                {showMissing ? 'Hide' : 'Show'} the {result.missing.length === 1 ? 'song' : `${result.missing.length} songs`} not on the server
+              </button>
+              {showMissing && (
+                <ul className="music-import-missing">
+                  {result.missing.map((m, i) => (
+                    <li key={i}>
+                      {m.title}
+                      {m.artist && <span> · {m.artist}</span>}
+                      {severalPlaylists && <span> · {m.playlist}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   )

@@ -1,41 +1,17 @@
 import Database from 'better-sqlite3'
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { mkdirSync, readdirSync, unlinkSync } from 'fs'
-import { logError } from './errorLog'
+import { mkdirSync } from 'fs'
+import { applyPendingRestore } from './restoreOnStart'
 
 mkdirSync(app.getPath('userData'), { recursive: true })
+// A restore chosen in Settings swaps the database before it's opened.
+applyPendingRestore(app.getPath('userData'))
 const dbPath = join(app.getPath('userData'), 'martbox.db')
 
 export const db: Database.Database = new Database(dbPath)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
-
-const backupsDir = join(app.getPath('userData'), 'backups')
-mkdirSync(backupsDir, { recursive: true })
-const MAX_BACKUPS = 5
-
-// A rescan runs a lot of merge/dedup/delete logic against this DB — cheap
-// insurance to have a pre-scan snapshot to fall back to if a scan ever does
-// something unwanted. Uses SQLite's own backup API (via better-sqlite3)
-// rather than copying the file directly, since a raw copy of a WAL-mode
-// database can miss not-yet-checkpointed pages and grab an inconsistent
-// snapshot; db.backup() handles that correctly while the DB stays open.
-export async function backupDatabase(): Promise<void> {
-  try {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    await db.backup(join(backupsDir, `martbox-${stamp}.db`))
-
-    const backups = readdirSync(backupsDir)
-      .filter((f) => f.startsWith('martbox-') && f.endsWith('.db'))
-      .sort()
-    for (const stale of backups.slice(0, Math.max(0, backups.length - MAX_BACKUPS))) {
-      unlinkSync(join(backupsDir, stale))
-    }
-  } catch (err) {
-    logError('backupDatabase', err)
-  }
-}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS settings (

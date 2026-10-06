@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MediaProbe } from './ffprobe'
-import { decidePlayback, toneMapFilters, type ClientCaps, type PlaybackInput } from './playback'
+import { decidePlayback, originalNeedsKbps, toneMapFilters, type ClientCaps, type PlaybackInput } from './playback'
 
 const APPLE_TV_4K: ClientCaps = {
   videoCodecs: ['h264', 'hevc'],
@@ -162,3 +162,40 @@ describe('toneMapFilters', () => {
     expect(toneMapFilters(probe({ hdr: null }))).toEqual([])
   })
 })
+
+describe('peaks in the original', () => {
+  it('converts when the busiest stretch is more than the connection carries', () => {
+    // 20 Mbps average fits 35 Mbps with headroom, but a 45 Mbps peak doesn't.
+    const d = decidePlayback(input({ bandwidthKbps: 35_000, peakKbps: 45_000 }))
+    expect(d.method).toBe('transcode')
+    expect(d.reason).toContain('peaking at 45 Mbps')
+  })
+
+  it('keeps the original when the peak fits', () => {
+    expect(decidePlayback(input({ bandwidthKbps: 35_000, peakKbps: 32_000 })).method).toBe('remux')
+  })
+
+  it('still uses the average with headroom when the peak is unknown or lower', () => {
+    expect(decidePlayback(input({ bandwidthKbps: 29_000, peakKbps: null })).method).toBe('transcode')
+    expect(originalNeedsKbps(20_000, 25_000)).toBe(30_000)
+  })
+})
+
+describe('stepping down after stalls', () => {
+  it('converts to the best size under the cap that fits what the player measured', () => {
+    const d = decidePlayback(input({ capHeight: 720, bandwidthKbps: 1800, probe: probe({ height: 1080 }) }))
+    expect(d.method).toBe('transcode')
+    expect(d.rung?.height).toBe(480)
+    expect(d.reason).toContain('lowered to keep playing smoothly')
+  })
+
+  it('uses the cap itself when the connection carries it', () => {
+    const d = decidePlayback(input({ capHeight: 720, bandwidthKbps: 9000, probe: probe({ height: 1080 }) }))
+    expect(d.rung?.height).toBe(720)
+  })
+
+  it('leaves an original that is already under the cap alone', () => {
+    expect(decidePlayback(input({ capHeight: 720, probe: probe({ height: 480, bitRateKbps: 1500 }) })).method).toBe('remux')
+  })
+})
+

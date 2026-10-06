@@ -16,9 +16,16 @@ import {
   setSetting,
   deleteSetting,
   encryptedGetSetting,
-  encryptedSetSetting,
-  backupDatabase
+  encryptedSetSetting
 } from './db'
+import {
+  backupCopySubfolder,
+  backupNow,
+  backupStatus,
+  importBackupFolder,
+  restoreBackup,
+  setBackupCopyFolder
+} from './backups'
 import { logError } from './errorLog'
 import {
   testApiKey,
@@ -146,7 +153,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('library:scan', async (_e, id: number) => {
-    await backupDatabase()
+    await backupNow('scan')
     const library = getLibrary(id)
     if (library?.type === 'music') {
       await scanMusicLibrary(library, (progress) => {
@@ -966,6 +973,50 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await revokeGuestDevicesByAddr(addrs).catch((err) => logError('revokeGuestDevicesByAddr', err))
     }
   )
+
+  // --- Backups (host only, admin only) ---
+
+  ipcMain.handle('backups:status', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    return backupStatus()
+  })
+  ipcMain.handle('backups:backUpNow', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    await backupNow('manual')
+    return backupStatus()
+  })
+  ipcMain.handle('backups:chooseCopyFolder', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose where to keep a second copy of each backup',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return backupStatus()
+    setBackupCopyFolder(result.filePaths[0])
+    // Puts a first copy there straight away.
+    await backupNow('manual')
+    return backupStatus()
+  })
+  ipcMain.handle('backups:clearCopyFolder', (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    setBackupCopyFolder(null)
+    return backupStatus()
+  })
+  // Picks a backup from the second folder; restoring it is a separate step.
+  ipcMain.handle('backups:pickFromCopyFolder', async (_e, requestingProfileId: number) => {
+    requireHostAdmin(requestingProfileId)
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a backup folder to restore',
+      defaultPath: backupCopySubfolder() ?? undefined,
+      properties: ['openDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return importBackupFolder(result.filePaths[0])
+  })
+  ipcMain.handle('backups:restore', (_e, requestingProfileId: number, name: string) => {
+    requireHostAdmin(requestingProfileId)
+    restoreBackup(name)
+  })
 
   // Where converted-video chunks are written while streaming (HLS).
   ipcMain.handle('settings:getTranscodeCacheDir', () => ({

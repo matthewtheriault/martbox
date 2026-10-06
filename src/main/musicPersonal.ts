@@ -2,7 +2,8 @@ import type { Express, Request, Response } from 'express'
 import express from 'express'
 import { db } from './db'
 import { albumsByIds, tracksByIds } from './music'
-import type { MusicListening, MusicPlaylist, MusicPlaylistDetail } from '../shared/types'
+import type { MusicListening, MusicPlaylist, MusicPlaylistDetail, PlaylistImportResult } from '../shared/types'
+import { type ImportRow, type LibraryTrack, makeMatcher, readPlaylistCsv } from './playlistImportCore'
 
 // Each person's own music: playlists, and what they've listened to (for
 // Recently Played and their most played songs). Kept per profile, like the
@@ -146,6 +147,40 @@ export function deletePlaylist(profileId: number, id: number): boolean {
   return db.prepare('DELETE FROM music_playlists WHERE id = ? AND profile_id = ?').run(id, profileId).changes > 0
 }
 
+// Makes playlists from an exported playlist file: one per playlist in it,
+// with the songs found on this server, in order. Songs not found are listed.
+export function importPlaylists(profileId: number, name: string, csv: string): PlaylistImportResult {
+  const rows = readPlaylistCsv(csv)
+  if (rows.length === 0) throw new Error('That file has no songs in it')
+  const library = db
+    .prepare(
+      `SELECT t.id, t.title, t.artist, ar.name AS albumArtist, al.title AS album, t.duration AS durationSeconds
+       FROM music_tracks t JOIN music_albums al ON al.id = t.album_id JOIN music_artists ar ON ar.id = al.artist_id`
+    )
+    .all() as LibraryTrack[]
+  const matcher = makeMatcher(library)
+  const groups = new Map<string, ImportRow[]>()
+  for (const row of rows) {
+    const key = (row.playlist ?? name).trim().slice(0, MAX_NAME) || name
+    const group = groups.get(key)
+    if (group) group.push(row)
+    else groups.set(key, [row])
+  }
+  const result: PlaylistImportResult = { playlists: [], missing: [] }
+  for (const [playlistName, group] of groups) {
+    const ids: number[] = []
+    for (const row of group.slice(0, MAX_ITEMS)) {
+      const id = matcher.match(row)
+      if (id !== null) ids.push(id)
+      else result.missing.push({ playlist: playlistName, title: row.title, artist: row.artist })
+    }
+    if (ids.length === 0) continue
+    const made = createPlaylist(profileId, playlistName, ids)
+    result.playlists.push({ id: made.id, name: playlistName, matched: ids.length, total: Math.min(group.length, MAX_ITEMS) })
+  }
+  return result
+}
+
 // A song counts as played once a client has played half of it (or four
 // minutes); playing the same one again within a minute counts once.
 export function recordPlay(profileId: number, trackId: number): boolean {
@@ -229,6 +264,20 @@ export function registerMusicPersonalRoutes(app: Express, canActAsProfile: CanAc
       return
     }
     res.json(createPlaylist(profileId, name, trackIdList(req.body.trackIds)))
+  })
+  // A whole exported file, so a bigger limit than the other routes.
+  app.post('/api/music/playlists/import', express.json({ limit: '8mb' }), (req, res) => {
+    const profileId = profileOf(req, res)
+    if (profileId === null) return
+    if (typeof req.body.csv !== 'string') {
+      res.status(400).json({ error: 'No playlist file' })
+      return
+    }
+    try {
+      res.json(importPlaylists(profileId, cleanName(req.body.name) ?? 'Imported playlist', req.body.csv))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Couldn’t read that file' })
+    }
   })
   app.get('/api/music/playlists/:id', (req, res) => {
     const profileId = profileOf(req, res)

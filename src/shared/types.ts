@@ -815,3 +815,33 @@ export interface EmulatorStatus {
   progress: number
   message: string | null
 }
+
+// Server backups (backups.ts), shown in Settings.
+export interface BackupInfo {
+  name: string
+  at: string
+  reason: 'daily' | 'scan' | 'update' | 'manual' | 'restore' | 'older'
+  sizeBytes: number
+  // Backups from before 0.21 hold only the database.
+  databaseOnly: boolean
+}
+
+export interface BackupStatus {
+  folder: string
+  // Newest first.
+  backups: BackupInfo[]
+  // The second folder each backup is copied to, if chosen.
+  copyFolder: string | null
+  lastCopy: { ok: boolean; at: string; error?: string } | null
+  // Set once, after the restart that restored a backup.
+  lastRestore: { ok: boolean; name: string; at?: string; error?: string } | null
+  running: boolean
+}
+
+// A playlist file (Spotify via Exportify, TuneMyMusic…) matched against the
+// server's music (playlistImportCore.ts).
+export interface PlaylistImportResult {
+  // One per playlist in the file that had at least one song found.
+  playlists: { id: number; name: string; matched: number; total: number }[]
+  missing: { playlist: string; title: string; artist: string }[]
+}

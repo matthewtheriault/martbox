@@ -26,6 +26,7 @@ import { ACCENTS, applyAccent } from '../lib/accent'
 import { useProfile } from '../lib/ProfileContext'
 import { AVATAR_COLORS } from '../lib/avatars'
 import Avatar from '../components/Avatar'
+import BackupsSection from '../components/BackupsSection'
 
 function PeerPathLabel({ peer }: { peer: PeerConnection | undefined }): JSX.Element | null {
   if (!peer) return null
@@ -1105,6 +1106,8 @@ export default function Settings(): JSX.Element {
           </div>
         </section>
       )}
+
+      {manageUsers && <BackupsSection profileId={activeProfile.id} />}
 
       <section className="settings-section">
         <h2>App Updates</h2>

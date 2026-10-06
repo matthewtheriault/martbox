@@ -28,6 +28,7 @@ const ID = {
   cueTime: 0xb3,
   cueTrackPositions: 0xb7,
   cueTrack: 0xf7,
+  cueClusterPosition: 0xf1,
   cluster: 0x1f43b675
 }
 
@@ -108,16 +109,51 @@ async function elementData(file: FileHandle, el: Element): Promise<Buffer | null
   return readAt(file, el.dataStart, el.size)
 }
 
+export interface MkvIndex {
+  keyframes: number[] | null
+  // The highest bitrate over any PEAK_WINDOW_SECONDS stretch (all tracks,
+  // which is what a stream of the original carries), from where the index
+  // says each keyframe's cluster starts. null when the index has no
+  // positions.
+  peakKbps: number | null
+}
+
+export const PEAK_WINDOW_SECONDS = 10
+
 export async function readMkvKeyframes(filePath: string): Promise<number[] | null> {
+  return (await readMkvIndex(filePath)).keyframes
+}
+
+// Bitrate between index points at least `windowSeconds` apart; the highest
+// is the stretch a connection has to keep up with.
+export function peakKbps(points: { time: number; pos: number }[], windowSeconds = PEAK_WINDOW_SECONDS): number | null {
+  const sorted = [...points].sort((a, b) => a.time - b.time)
+  let peak: number | null = null
+  let j = 0
+  for (let i = 0; i < sorted.length; i++) {
+    if (j <= i) j = i + 1
+    while (j < sorted.length && sorted[j].time - sorted[i].time < windowSeconds) j++
+    if (j >= sorted.length) break
+    const seconds = sorted[j].time - sorted[i].time
+    const bytes = sorted[j].pos - sorted[i].pos
+    if (bytes <= 0) continue
+    const kbps = (bytes * 8) / 1000 / seconds
+    if (peak === null || kbps > peak) peak = kbps
+  }
+  return peak === null ? null : Math.round(peak)
+}
+
+export async function readMkvIndex(filePath: string): Promise<MkvIndex> {
+  const none: MkvIndex = { keyframes: null, peakKbps: null }
   let file: FileHandle | null = null
   try {
     file = await open(filePath, 'r')
     const { size: fileSize } = await file.stat()
 
     const ebml = await headerAt(file, 0)
-    if (!ebml || ebml.id !== ID.ebml || ebml.size === null) return null
+    if (!ebml || ebml.id !== ID.ebml || ebml.size === null) return none
     const segment = await headerAt(file, ebml.dataStart + ebml.size)
-    if (!segment || segment.id !== ID.segment) return null
+    if (!segment || segment.id !== ID.segment) return none
     const segmentStart = segment.dataStart
 
     // Where the top-level elements are: the SeekHead lists them, and the
@@ -182,29 +218,41 @@ export async function readMkvKeyframes(filePath: string): Promise<number[] | nul
         break
       }
     }
-    if (videoTrack === null) return null
+    if (videoTrack === null) return none
 
     const cues = await load(ID.cues)
-    if (!cues) return null
+    if (!cues) return none
     const times: number[] = []
+    const points: { time: number; pos: number }[] = []
     for (const point of children(cues)) {
       if (point.id !== ID.cuePoint) continue
       let time: number | null = null
       let forVideo = false
+      let clusterPos: number | null = null
       for (const field of children(point.data)) {
         if (field.id === ID.cueTime) time = readUint(field.data)
         if (field.id === ID.cueTrackPositions) {
+          let track: number | null = null
+          let position: number | null = null
           for (const pos of children(field.data)) {
-            if (pos.id === ID.cueTrack && readUint(pos.data) === videoTrack) forVideo = true
+            if (pos.id === ID.cueTrack) track = readUint(pos.data)
+            if (pos.id === ID.cueClusterPosition) position = readUint(pos.data)
+          }
+          if (track === videoTrack) {
+            forVideo = true
+            clusterPos = position
           }
         }
       }
+      if (time === null || !forVideo) continue
       // Milliseconds are as precise as anything that consumes these.
-      if (time !== null && forVideo) times.push(Math.round((time * timestampScale) / 1e6) / 1000)
+      const seconds = Math.round((time * timestampScale) / 1e6) / 1000
+      times.push(seconds)
+      if (clusterPos !== null) points.push({ time: seconds, pos: clusterPos })
     }
-    return usableKeyframes(times)
+    return { keyframes: usableKeyframes(times), peakKbps: peakKbps(points) }
   } catch {
-    return null
+    return none
   } finally {
     await file?.close().catch(() => {})
   }

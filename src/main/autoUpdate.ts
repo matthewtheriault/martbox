@@ -1,6 +1,6 @@
 import { app, Notification } from 'electron'
 import { autoUpdater, type UpdateInfo } from 'electron-updater'
-import { backupDatabase } from './db'
+import { backupNow } from './backups'
 import { logError } from './errorLog'
 import type { AppUpdateStatus } from '../shared/types'
 
@@ -101,7 +101,7 @@ export function initAutoUpdates(): void {
     setStatus({ progressPercent: Math.round(progress.percent) })
   })
   autoUpdater.on('update-downloaded', async (info) => {
-    await backupDatabase()
+    await backupNow('update')
     setStatus({
       state: 'ready',
       latestVersion: info.version,
@@ -145,7 +145,7 @@ export function checkForUpdatesNow(): void {
 
 export async function installUpdateNow(): Promise<void> {
   if (status.state !== 'ready') return
-  await backupDatabase()
+  await backupNow('update')
   // isSilent=false shows the Windows installer's progress; isForceRunAfter
   // relaunches MartBox once the install finishes.
   autoUpdater.quitAndInstall(false, true)
