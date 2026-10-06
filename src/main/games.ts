@@ -8,6 +8,7 @@ import type { Express, Request, Response } from 'express'
 import ffmpegStatic from 'ffmpeg-static'
 import { db } from './db'
 import { emulatorDir, emulatorStatus, installEmulators } from './emulators'
+import { fingerprint, identifyingFile } from './gameFingerprint'
 import { cueFiles, gameName, m3uFiles, systemInfo, systemOf, thumbnailName } from './gamesCore'
 import { sortKey } from './musicCore'
 import playerHtml from './gamePlayer.html?raw'
@@ -33,6 +34,7 @@ db.exec(`
     size INTEGER NOT NULL DEFAULT 0,
     cover_path TEXT,
     signature TEXT NOT NULL,
+    fingerprint TEXT,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS game_saves (
@@ -46,6 +48,11 @@ db.exec(`
     PRIMARY KEY (profile_id, game_id, kind, slot)
   );
 `)
+
+// 0.19.0 had no fingerprints (gameFingerprint.ts).
+if (!(db.prepare('PRAGMA table_info(games)').all() as { name: string }[]).some((c) => c.name === 'fingerprint')) {
+  db.exec('ALTER TABLE games ADD COLUMN fingerprint TEXT')
+}
 
 function userDir(...parts: string[]): string {
   const d = join(app.getPath('userData'), ...parts)
@@ -178,33 +185,73 @@ export async function scanGameLibrary(library: Library, onProgress: (p: ScanProg
   // The first games library fetches the emulators in the background.
   void installEmulators().catch(() => undefined)
   onProgress({ libraryId: library.id, phase: 'scanning', current: 0, total: 0, message: 'Finding games…' })
-  const found = findGames(library.path)
   const known = new Map(
-    (db.prepare('SELECT file_path, signature, cover_path FROM games WHERE library_id = ?').all(library.id) as { file_path: string; signature: string; cover_path: string | null }[]).map(
-      (r) => [r.file_path, r]
-    )
+    (db.prepare('SELECT id, file_path, signature, cover_path, fingerprint FROM games WHERE library_id = ?').all(library.id) as KnownGame[]).map((r) => [r.file_path, r])
   )
+  // A folder that can't be reached (a drive unplugged or asleep) is left as
+  // it was: scanning it would forget every game, and everyone's saves with them.
+  let reachable = false
+  try {
+    reachable = statSync(library.path).isDirectory()
+  } catch {
+    /* not there */
+  }
+  const found = reachable ? findGames(library.path) : []
+  if (!reachable || (found.length === 0 && known.size > 0)) {
+    onProgress({ libraryId: library.id, phase: 'done', current: 1, total: 1, message: 'Done' })
+    // Shown under the library in Settings.
+    throw new Error(
+      reachable
+        ? 'No games were found in this folder, so the library was left as it was. If you removed them all on purpose, remove the library instead.'
+        : "Couldn't reach this folder (is the drive connected?), so the library was left as it was."
+    )
+  }
+  const present = new Set(found.map((g) => g.file))
+  // Games no longer where they were, by fingerprint: a "new" file with the
+  // same one is that game renamed or moved, and keeps its saves.
+  const missing = new Map<string, number>()
+  for (const r of db.prepare('SELECT id, library_id, file_path, fingerprint FROM games WHERE fingerprint IS NOT NULL').all() as {
+    id: number
+    library_id: number
+    file_path: string
+    fingerprint: string
+  }[]) {
+    const gone = r.library_id === library.id ? !present.has(r.file_path) : !existsSync(r.file_path)
+    if (gone) missing.set(r.fingerprint, r.id)
+  }
   let done = 0
   for (const g of found) {
     const size = gameSize(g)
     const st = statSync(g.file)
     const signature = `${size}|${Math.round(st.mtimeMs)}|${g.parts.length}`
-    const before = known.get(g.file)
+    let before = known.get(g.file)
+    let print = before?.fingerprint ?? null
+    if (!before || !print) print = fingerprint(identifyingFile(g.file, g.parts, (p) => join(dirname(g.file), p)))
+    const movedId = !before && print ? missing.get(print) : undefined
+    if (movedId !== undefined && print) {
+      const old = db.prepare('SELECT * FROM games WHERE id = ?').get(movedId) as KnownGame
+      db.prepare('UPDATE games SET file_path = ?, library_id = ? WHERE id = ?').run(g.file, library.id, movedId)
+      // Its packed disc names the old files.
+      rmSync(join(userDir('game-cache'), `${movedId}.zip`), { force: true })
+      missing.delete(print)
+      before = { ...old, file_path: g.file, signature: '' }
+    }
     if (before?.signature !== signature) {
       const name = gameName(g.file)
-      const values = [library.id, g.system, name.title, sortKey(name.title), name.region, g.parts.length ? JSON.stringify(g.parts) : null, size, signature]
+      const values = [library.id, g.system, name.title, sortKey(name.title), name.region, g.parts.length ? JSON.stringify(g.parts) : null, size, signature, print]
       if (before) {
-        db.prepare('UPDATE games SET library_id = ?, system = ?, title = ?, sort_title = ?, region = ?, parts = ?, size = ?, signature = ? WHERE file_path = ?').run(
-          ...values,
-          g.file
-        )
+        db.prepare(
+          'UPDATE games SET library_id = ?, system = ?, title = ?, sort_title = ?, region = ?, parts = ?, size = ?, signature = ?, fingerprint = ? WHERE file_path = ?'
+        ).run(...values, g.file)
         rmSync(packedPath(g.file), { force: true })
       } else {
-        db.prepare('INSERT INTO games (library_id, system, title, sort_title, region, parts, size, signature, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-          ...values,
-          g.file
-        )
+        db.prepare(
+          'INSERT INTO games (library_id, system, title, sort_title, region, parts, size, signature, fingerprint, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(...values, g.file)
       }
+    } else if (!before.fingerprint && print) {
+      // Games scanned before fingerprints existed get theirs now.
+      db.prepare('UPDATE games SET fingerprint = ? WHERE id = ?').run(print, before.id)
     }
     if (!before?.cover_path || !existsSync(before.cover_path)) {
       const { id } = db.prepare('SELECT id FROM games WHERE file_path = ?').get(g.file) as { id: number }
@@ -214,10 +261,17 @@ export async function scanGameLibrary(library: Library, onProgress: (p: ScanProg
     done++
     onProgress({ libraryId: library.id, phase: 'matching', current: done, total: found.length, message: basename(g.file) })
   }
-  const present = new Set(found.map((g) => g.file))
   const remove = db.prepare('DELETE FROM games WHERE file_path = ?')
   db.transaction(() => [...known.keys()].filter((p) => !present.has(p)).forEach((p) => remove.run(p)))()
   onProgress({ libraryId: library.id, phase: 'done', current: 1, total: 1, message: 'Done' })
+}
+
+interface KnownGame {
+  id: number
+  file_path: string
+  signature: string
+  cover_path: string | null
+  fingerprint: string | null
 }
 
 // --- Disc games travel as one ZIP (stored, not compressed: discs don't shrink)
