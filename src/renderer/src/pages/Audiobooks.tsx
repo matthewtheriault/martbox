@@ -5,6 +5,7 @@ import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
 import { bookPlayer, useBookPlayer } from '../lib/bookPlayer'
 import { formatTime } from '../lib/media'
+import ArtTint from '../components/ArtTint'
 
 // Audiobooks (Phase 5): the library, Continue Listening, and a book's page
 // with its chapters. Playback is bookPlayer (lib/bookPlayer.ts).
@@ -169,7 +170,8 @@ function BookPage({ id }: { id: number }): JSX.Element {
   }
 
   return (
-    <div className="page music-page">
+    <div className="page music-page art-host">
+      <ArtTint query={book.hasCover ? `kind=audiobook&id=${book.id}` : null} />
       <button className="link-button" onClick={() => navigate(-1)}>
         ← Back
       </button>

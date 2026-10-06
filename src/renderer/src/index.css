@@ -991,11 +991,19 @@ button {
   top: 0;
   left: 0;
   right: 0;
-  height: 440px;
+  height: 520px;
   background-size: cover;
   background-position: center;
   -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+}
+
+/* Text sits on the left of the backdrop: darken that side so it reads on any artwork. */
+.detail-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.6) 38%, rgba(0, 0, 0, 0.15) 72%, transparent 100%);
 }
 
 .detail-content {
@@ -4817,4 +4825,37 @@ button {
 .game-player-quit:hover,
 .game-player-quit:focus-visible {
   opacity: 1;
+}
+
+/* --- Artwork colours (components/ArtTint.tsx) */
+
+.art-host {
+  position: relative;
+  isolation: isolate;
+}
+
+.art-tint {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 620px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1000px 520px at 22% -40px, color-mix(in srgb, var(--art) 38%, transparent), transparent 72%),
+    radial-gradient(700px 420px at 85% -60px, color-mix(in srgb, var(--art) 18%, transparent), transparent 70%);
+  animation: art-in 0.6s ease-out both;
+}
+
+@keyframes art-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .art-tint {
+    animation: none;
+  }
 }

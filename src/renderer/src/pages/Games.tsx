@@ -4,6 +4,7 @@ import type { Game, GameDetail, GameSaveInfo, GameSystem } from '../../../shared
 import { usePort } from '../lib/PortContext'
 import { useProfile } from '../lib/ProfileContext'
 import { useBooksApi } from './Books'
+import ArtTint from '../components/ArtTint'
 
 // Retro games (Phase 7): the library with Continue Playing, a game's page,
 // and the player (the server's /emulator/player.html, full screen).
@@ -157,7 +158,8 @@ function GamePage({ id }: { id: number }): JSX.Element {
   const state = game.saves.find((s) => s.kind === 'state' && s.slot === 1)
 
   return (
-    <div className="page music-page">
+    <div className="page music-page art-host">
+      <ArtTint query={game.hasCover ? `kind=game&id=${game.id}` : null} />
       <button className="link-button" onClick={() => navigate(-1)}>
         ← Back
       </button>

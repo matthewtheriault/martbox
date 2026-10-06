@@ -16,6 +16,7 @@ import { useProfile } from '../lib/ProfileContext'
 import { musicPlayer } from '../lib/musicPlayer'
 import { useMusic } from '../lib/useMusic'
 import { formatTime } from '../lib/media'
+import ArtTint from '../components/ArtTint'
 
 // Music (Phase 4): albums, artists, songs, genres and the person's own
 // playlists from the server's music libraries; playing hands a queue to
@@ -511,7 +512,8 @@ function AlbumPage({ id }: { id: number }): JSX.Element {
   const album = useMusicApi<MusicAlbumDetail>(`/api/music/albums/${id}`)
   if (!album) return <div className="page" />
   return (
-    <div className="page music-page">
+    <div className="page music-page art-host">
+      <ArtTint query={album.hasCover ? `kind=album&id=${album.id}` : null} />
       <button className="link-button" onClick={() => navigate(-1)}>
         ← Back
       </button>
