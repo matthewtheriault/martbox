@@ -80,6 +80,10 @@ export interface PlaybackInput {
   // The server has a hardware HEVC encoder, so conversions for devices
   // that play HEVC can be HEVC.
   hevcEncode?: boolean
+  // The original's busiest 10 seconds (MKV index), when known. Films can
+  // peak at two or three times their average, and a connection that only
+  // carries the average stalls there.
+  peakKbps?: number | null
 }
 
 const DIRECT_CONTAINERS = new Set(['.mp4', '.m4v', '.mov'])
@@ -146,6 +150,13 @@ function transcode(input: PlaybackInput, why: string, rung?: TranscodeRung): Pla
   }
 }
 
+// What a connection must carry to play the original without stalling: half
+// again its average, or its busiest 10 seconds if that's more (the player's
+// buffer rides out shorter bursts).
+export function originalNeedsKbps(averageKbps: number, peakKbps: number | null): number {
+  return Math.max(averageKbps * BANDWIDTH_HEADROOM, peakKbps ?? 0)
+}
+
 export function decidePlayback(input: PlaybackInput): PlaybackDecision {
   const { probe, caps, bandwidthKbps, quality, avoid } = input
 
@@ -161,10 +172,14 @@ export function decidePlayback(input: PlaybackInput): PlaybackDecision {
   if (videoProblem) return transcode(input, videoProblem)
 
   if (quality === 'auto' && bandwidthKbps !== null && probe.bitRateKbps !== null) {
-    if (probe.bitRateKbps * BANDWIDTH_HEADROOM > bandwidthKbps) {
+    if (originalNeedsKbps(probe.bitRateKbps, input.peakKbps ?? null) > bandwidthKbps) {
       return transcode(
         input,
-        `the original (${Math.round(probe.bitRateKbps / 1000)} Mbps) needs more than ` +
+        `the original (${Math.round(probe.bitRateKbps / 1000)} Mbps` +
+          (input.peakKbps && input.peakKbps > probe.bitRateKbps * BANDWIDTH_HEADROOM
+            ? `, peaking at ${Math.round(input.peakKbps / 1000)} Mbps`
+            : '') +
+          `) needs more than ` +
           (input.bandwidthIsServerUpload
             ? `the ${Math.round(bandwidthKbps / 1000)} Mbps of upload the server has spare`
             : `this connection's ${Math.round(bandwidthKbps / 1000)} Mbps`)
