@@ -181,3 +181,21 @@ describe('peaks in the original', () => {
   })
 })
 
+describe('stepping down after stalls', () => {
+  it('converts to the best size under the cap that fits what the player measured', () => {
+    const d = decidePlayback(input({ capHeight: 720, bandwidthKbps: 1800, probe: probe({ height: 1080 }) }))
+    expect(d.method).toBe('transcode')
+    expect(d.rung?.height).toBe(480)
+    expect(d.reason).toContain('lowered to keep playing smoothly')
+  })
+
+  it('uses the cap itself when the connection carries it', () => {
+    const d = decidePlayback(input({ capHeight: 720, bandwidthKbps: 9000, probe: probe({ height: 1080 }) }))
+    expect(d.rung?.height).toBe(720)
+  })
+
+  it('leaves an original that is already under the cap alone', () => {
+    expect(decidePlayback(input({ capHeight: 720, probe: probe({ height: 480, bitRateKbps: 1500 }) })).method).toBe('remux')
+  })
+})
+

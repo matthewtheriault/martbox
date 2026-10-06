@@ -84,6 +84,9 @@ export interface PlaybackInput {
   // peak at two or three times their average, and a connection that only
   // carries the average stalls there.
   peakKbps?: number | null
+  // The player kept stalling and asked again for at most this height (a
+  // step below what it had); the best rung under it that fits is used.
+  capHeight?: number | null
 }
 
 const DIRECT_CONTAINERS = new Set(['.mp4', '.m4v', '.mov'])
@@ -121,12 +124,15 @@ function directTagOk(probe: MediaProbe): boolean {
 function fitRung(
   bandwidthKbps: number | null,
   sourceHeight: number | null,
-  codec: OutputCodec
+  codec: OutputCodec,
+  capHeight: number | null = null
 ): TranscodeRung {
-  const fits = TRANSCODE_LADDER.filter(
+  const allowed = TRANSCODE_LADDER.filter((r) => capHeight === null || r.height <= capHeight)
+  const ladder = allowed.length > 0 ? allowed : TRANSCODE_LADDER.slice(-1)
+  const fits = ladder.filter(
     (r) => bandwidthKbps === null || rungFor(r, codec).kbps * BANDWIDTH_HEADROOM <= bandwidthKbps
   )
-  const rung = fits[0] ?? TRANSCODE_LADDER[TRANSCODE_LADDER.length - 1]
+  const rung = fits[0] ?? ladder[ladder.length - 1]
   // Never "convert up": a 720p source stays 720p at most.
   if (sourceHeight) {
     const notAbove = TRANSCODE_LADDER.find((r) => r.height <= Math.max(sourceHeight, 480))
@@ -140,7 +146,10 @@ function fitRung(
 function transcode(input: PlaybackInput, why: string, rung?: TranscodeRung): PlaybackDecision {
   const codec: OutputCodec =
     input.hevcEncode && input.caps.videoCodecs.includes('hevc') ? 'hevc' : 'h264'
-  const chosen = rungFor(rung ?? fitRung(input.bandwidthKbps, input.probe.height, codec), codec)
+  const chosen = rungFor(
+    rung ?? fitRung(input.bandwidthKbps, input.probe.height, codec, input.capHeight ?? null),
+    codec
+  )
   return {
     method: 'transcode',
     rung: chosen,
@@ -166,6 +175,13 @@ export function decidePlayback(input: PlaybackInput): PlaybackDecision {
     const small = probe.height !== null && probe.height <= rung.height
     const light = probe.bitRateKbps !== null && probe.bitRateKbps <= rung.kbps * 1.25
     if (!(small && light)) return transcode(input, `${quality}p chosen in settings`, rung)
+  }
+
+  // Lowered by the player to keep playing smoothly: anything taller is
+  // converted, to the best size under the cap its connection carries.
+  const cap = input.capHeight ?? null
+  if (cap !== null && (probe.height === null || probe.height > cap)) {
+    return transcode(input, 'lowered to keep playing smoothly')
   }
 
   const videoProblem = videoDecodable(probe, caps)

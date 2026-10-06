@@ -763,6 +763,12 @@ async function fileKeyframes(filePath: string): Promise<number[] | null> {
   return (await fileIndex(filePath)).keyframes
 }
 
+// ?cap=720: a player stepping down after stalls (see decidePlayback).
+function capHeightFrom(value: unknown): number | null {
+  const height = parseInt(String(value ?? ''), 10)
+  return Number.isFinite(height) && height > 0 ? height : null
+}
+
 // What a player said it can decode, from /api/playback's query.
 function capsFromQuery(query: express.Request['query']): ClientCaps {
   const list = (v: unknown): string[] =>
@@ -1787,7 +1793,8 @@ export function startMediaServer(imageCacheDir: string): Promise<number> {
       canRemux: req.query.client === 'desktop' || (await fileKeyframes(filePath)) !== null,
       avoid,
       hevcEncode: (await detectHevcEncoder()) !== null,
-      peakKbps: (await fileIndex(filePath)).peakKbps
+      peakKbps: (await fileIndex(filePath)).peakKbps,
+      capHeight: capHeightFrom(req.query.cap)
     })
     // The desktop app's player (Chromium) has no HLS: its original-video
     // stream is /stream repackaging, and its conversion the /stream one.
