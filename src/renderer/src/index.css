@@ -408,6 +408,87 @@ button {
   color: var(--accent-start);
 }
 
+/* ---------- media colours (design/tokens.json media-*) ----------
+   Each kind of media has its own gradient: the page glow, its sidebar
+   link and its selected chips. The person's accent stays on buttons and
+   progress. */
+
+[data-media='movies'] {
+  --media-start: var(--media-movies-start);
+  --media-end: var(--media-movies-end);
+}
+[data-media='music'] {
+  --media-start: var(--media-music-start);
+  --media-end: var(--media-music-end);
+}
+[data-media='games'] {
+  --media-start: var(--media-games-start);
+  --media-end: var(--media-games-end);
+}
+[data-media='books'] {
+  --media-start: var(--media-books-start);
+  --media-end: var(--media-books-end);
+}
+
+.sidebar-link[data-media]:hover svg {
+  color: var(--media-start);
+}
+
+.sidebar-link.active[data-media] {
+  background: color-mix(in srgb, var(--media-start) 14%, transparent);
+}
+
+.sidebar-link.active[data-media] svg {
+  color: var(--media-start);
+}
+
+/* A soft glow at the top of the page, in the page's colours; it scrolls away with the content. */
+.app-content[data-media]:not(.app-content-full) {
+  background-image:
+    radial-gradient(1100px 420px at 18% -150px, color-mix(in srgb, var(--media-start) 30%, transparent), transparent 72%),
+    radial-gradient(900px 380px at 80% -170px, color-mix(in srgb, var(--media-end) 24%, transparent), transparent 72%);
+  background-repeat: no-repeat;
+  background-attachment: local;
+}
+
+.app-content[data-media] .music-tabs button.active {
+  background: linear-gradient(135deg, var(--media-start), var(--media-end));
+  color: #000;
+}
+
+.app-content[data-media] .music-album-card:hover img,
+.app-content[data-media] .music-album-card:focus-visible img {
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--media-start) 28%, transparent);
+}
+
+/* Made-up covers (no artwork) take the page's colour. */
+.app-content[data-media] .game-cover-made,
+.app-content[data-media] .reading-cover-made {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--media-start) 30%, var(--surface)), var(--surface));
+}
+
+/* Pages ease in. */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page {
+  animation: page-in 0.22s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page {
+    animation: none;
+  }
+}
+
 .sidebar-link-settings {
   margin-top: auto;
   position: relative;
