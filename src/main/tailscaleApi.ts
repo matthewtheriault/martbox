@@ -1,4 +1,5 @@
 import { encryptedGetSetting } from './db'
+import { LOGIN_CODE_TTL_MS } from './authCore'
 import type { TailscaleGuestDevice } from '../shared/remoteAccess'
 import type { TailnetPolicy } from './tailnetPolicy'
 
@@ -74,14 +75,15 @@ export function mintHostKey(): Promise<string> {
   })
 }
 
-// Single-use and short-lived — only good for redeeming one invite. The
-// guest device itself is not ephemeral once joined, so a friend doesn't
-// need a fresh invite every session.
+// Single-use — only good for redeeming one invite. Lives as long as the
+// login code it ships with (LOGIN_CODE_TTL_MS) so a v2 invite doesn't die
+// before its login code does. The guest device itself is not ephemeral
+// once joined, so a friend doesn't need a fresh invite every session.
 export function mintGuestKey(): Promise<string> {
   return mintAuthKey({
     tag: 'tag:martbox-guest',
     reusable: false,
-    expirySeconds: 60 * 60,
+    expirySeconds: LOGIN_CODE_TTL_MS / 1000,
     description: 'MartBox guest invite'
   })
 }
