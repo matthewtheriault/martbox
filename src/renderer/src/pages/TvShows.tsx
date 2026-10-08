@@ -18,6 +18,9 @@ export default function TvShows(): JSX.Element {
   const [sort, setSort] = useState<SortOption>('title')
   const [genre, setGenre] = useState('')
   const [newSince, setNewSince] = useState<string | null>(null)
+  const [unwatchedOnly, setUnwatchedOnly] = useState(false)
+  // Finished titles; null when the server is too old to say.
+  const [watched, setWatched] = useState<Set<number> | null>(null)
 
   useEffect(() => {
     window.api.shows.list().then((list) => {
@@ -28,6 +31,10 @@ export default function TvShows(): JSX.Element {
       setNewSince(seenAt)
       window.api.library.markSeen(activeProfile.id, 'show', profilePin)
     })
+    window.api.watched
+      .set(activeProfile.id, profilePin)
+      .then((set) => setWatched(set ? new Set(set.shows) : null))
+      .catch(() => setWatched(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -35,6 +42,7 @@ export default function TvShows(): JSX.Element {
 
   const visible = useMemo(() => {
     let list = genre ? shows.filter((s) => s.genres.includes(genre)) : shows
+    if (unwatchedOnly && watched) list = list.filter((s) => !watched.has(s.id))
     list = [...list]
     switch (sort) {
       case 'yearNewest':
@@ -53,7 +61,7 @@ export default function TvShows(): JSX.Element {
         list.sort((a, b) => a.sortTitle.localeCompare(b.sortTitle))
     }
     return list
-  }, [shows, sort, genre])
+  }, [shows, sort, genre, unwatchedOnly, watched])
 
   return (
     <div className="page">
@@ -81,6 +89,12 @@ export default function TvShows(): JSX.Element {
                 ))}
               </select>
             )}
+            {watched && (
+              <label className="grid-controls-checkbox">
+                <input type="checkbox" checked={unwatchedOnly} onChange={(e) => setUnwatchedOnly(e.target.checked)} />
+                Unwatched
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -88,6 +102,8 @@ export default function TvShows(): JSX.Element {
         <SkeletonGrid />
       ) : shows.length === 0 ? (
         <p className="empty-state-inline">No shows found yet. Add and scan a TV library in Settings.</p>
+      ) : visible.length === 0 ? (
+        <p className="empty-state-inline">Nothing matches these filters.</p>
       ) : (
         <div className="grid">
           {visible.map((show) => (

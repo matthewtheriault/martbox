@@ -21,6 +21,7 @@ import type {
   BackupStatus,
   Collection,
   ContinueWatchingItem,
+  WatchedSet,
   Episode,
   EpisodeMarkers,
   IptvChannel,
@@ -151,6 +152,11 @@ const api = {
       watched: boolean,
       pin?: string | null
     ) => invoke<void>('progress:setWatched', profileId, mediaType, mediaId, watched, pin)
+  },
+  watched: {
+    // null when connected to a server too old to say.
+    set: (profileId: number, pin?: string | null) =>
+      invoke<WatchedSet | null>('watched:set', profileId, pin)
   },
   continueWatching: {
     list: (profileId: number, pin?: string | null) =>

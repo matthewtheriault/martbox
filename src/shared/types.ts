@@ -183,6 +183,13 @@ export interface WatchProgress {
   updatedAt: string
 }
 
+// What a profile has finished: movies marked watched, and shows with every
+// episode watched. Lets the apps offer an "Unwatched" filter.
+export interface WatchedSet {
+  movies: number[]
+  shows: number[]
+}
+
 export interface ContinueWatchingItem {
   mediaType: MediaType
   mediaId: number

@@ -18,6 +18,10 @@ export default function Movies(): JSX.Element {
   const [sort, setSort] = useState<SortOption>('title')
   const [genre, setGenre] = useState('')
   const [newSince, setNewSince] = useState<string | null>(null)
+  const [unwatchedOnly, setUnwatchedOnly] = useState(false)
+  const [shortOnly, setShortOnly] = useState(false)
+  // Finished titles; null when the server is too old to say.
+  const [watched, setWatched] = useState<Set<number> | null>(null)
 
   useEffect(() => {
     window.api.movies.list().then((list) => {
@@ -31,6 +35,10 @@ export default function Movies(): JSX.Element {
       setNewSince(seenAt)
       window.api.library.markSeen(activeProfile.id, 'movie', profilePin)
     })
+    window.api.watched
+      .set(activeProfile.id, profilePin)
+      .then((set) => setWatched(set ? new Set(set.movies) : null))
+      .catch(() => setWatched(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -41,6 +49,8 @@ export default function Movies(): JSX.Element {
 
   const visible = useMemo(() => {
     let list = genre ? movies.filter((m) => m.genres.includes(genre)) : movies
+    if (unwatchedOnly && watched) list = list.filter((m) => !watched.has(m.id))
+    if (shortOnly) list = list.filter((m) => m.runtimeMinutes !== null && m.runtimeMinutes < 120)
     list = [...list]
     switch (sort) {
       case 'yearNewest':
@@ -59,7 +69,7 @@ export default function Movies(): JSX.Element {
         list.sort((a, b) => a.sortTitle.localeCompare(b.sortTitle))
     }
     return list
-  }, [movies, sort, genre])
+  }, [movies, sort, genre, unwatchedOnly, shortOnly, watched])
 
   return (
     <div className="page">
@@ -87,6 +97,16 @@ export default function Movies(): JSX.Element {
                 ))}
               </select>
             )}
+            {watched && (
+              <label className="grid-controls-checkbox">
+                <input type="checkbox" checked={unwatchedOnly} onChange={(e) => setUnwatchedOnly(e.target.checked)} />
+                Unwatched
+              </label>
+            )}
+            <label className="grid-controls-checkbox">
+              <input type="checkbox" checked={shortOnly} onChange={(e) => setShortOnly(e.target.checked)} />
+              Under 2 hours
+            </label>
           </div>
         )}
       </div>
@@ -94,6 +114,8 @@ export default function Movies(): JSX.Element {
         <SkeletonGrid />
       ) : movies.length === 0 ? (
         <p className="empty-state-inline">No movies found yet. Add and scan a Movies library in Settings.</p>
+      ) : visible.length === 0 ? (
+        <p className="empty-state-inline">Nothing matches these filters.</p>
       ) : (
         <div className="grid">
           {visible.map((movie) => (

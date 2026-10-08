@@ -390,6 +390,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     ) => dataSource().setWatched(profileId, mediaType, mediaId, watched, pin)
   )
 
+  ipcMain.handle('watched:set', (_e, profileId: number, pin?: string | null) =>
+    dataSource().getWatchedSet(profileId, pin)
+  )
   ipcMain.handle('continueWatching:list', (_e, profileId: number, pin?: string | null) =>
     dataSource().getContinueWatching(profileId, 20, pin)
   )
