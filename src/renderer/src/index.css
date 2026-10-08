@@ -986,12 +986,16 @@ button {
   position: relative;
 }
 
+/* Behind everything on the page (the page is an .art-host, so -1 stays inside it):
+   otherwise it covers whatever sits in its top 520px, such as the season tabs. */
 .detail-backdrop {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   height: 520px;
+  z-index: -1;
+  pointer-events: none;
   background-size: cover;
   background-position: center;
   -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
