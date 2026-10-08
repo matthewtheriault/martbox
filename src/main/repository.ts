@@ -8,6 +8,7 @@ import type {
   ActivityItem,
   CastMember,
   ContinueWatchingItem,
+  WatchedSet,
   CrewMember,
   Episode,
   IptvChannel,
@@ -837,6 +838,27 @@ export function setWatched(
      VALUES (?, ?, 0, 0, ?, datetime('now'))
      ON CONFLICT(profile_id, media_type, media_id) DO UPDATE SET watched = excluded.watched, updated_at = excluded.updated_at`
   ).run(profileId, mediaType, mediaId, watched ? 1 : 0)
+}
+
+export function getWatchedSet(profileId: number, _pin?: string | null): WatchedSet {
+  const movies = (
+    db
+      .prepare("SELECT media_id FROM watch_progress WHERE profile_id = ? AND media_type = 'movie' AND watched = 1")
+      .all(profileId) as { media_id: number }[]
+  ).map((r) => r.media_id)
+  // A show counts once every one of its episodes is watched.
+  const shows = (
+    db
+      .prepare(
+        `SELECT e.show_id FROM episodes e
+         LEFT JOIN watch_progress wp
+           ON wp.profile_id = ? AND wp.media_type = 'episode' AND wp.media_id = e.id AND wp.watched = 1
+         GROUP BY e.show_id
+         HAVING COUNT(wp.id) = COUNT(e.id)`
+      )
+      .all(profileId) as { show_id: number }[]
+  ).map((r) => r.show_id)
+  return { movies, shows }
 }
 
 export function getContinueWatching(

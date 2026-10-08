@@ -4,6 +4,7 @@ import type { RemoteSession, ServerVersionInfo } from '../shared/remoteAccess'
 import type {
   ActivityItem,
   ContinueWatchingItem,
+  WatchedSet,
   Episode,
   IptvChannel,
   MediaType,
@@ -232,6 +233,12 @@ export async function setWatched(
     '/api/progress/watched',
     jsonInit('POST', { profileId, mediaType, mediaId, watched, pin })
   )
+}
+
+// Servers older than 0.22 don't have /api/watched: no Unwatched filter then.
+export function getWatchedSet(profileId: number, pin?: string | null): Promise<WatchedSet | null> {
+  const pinParam = pin ? `&pin=${encodeURIComponent(pin)}` : ''
+  return request<WatchedSet>(`/api/watched?profileId=${profileId}${pinParam}`).catch(() => null)
 }
 
 export function getContinueWatching(

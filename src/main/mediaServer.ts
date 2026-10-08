@@ -94,6 +94,7 @@ import {
   getProgress,
   setWatched,
   getContinueWatching,
+  getWatchedSet,
   getNextEpisodeToWatch,
   getAllActivity,
   listWatchlist,
@@ -1554,6 +1555,15 @@ function registerMetadataApi(app: express.Express): void {
     }
     setWatched(profileId, mediaType, mediaId, watched)
     res.json({ ok: true })
+  })
+
+  app.get('/api/watched', (req, res) => {
+    const profileId = parseInt(req.query.profileId as string, 10)
+    if (!canActAsProfile(res, profileId, req.query.pin as string | undefined)) {
+      res.status(403).json({ error: 'Wrong or missing PIN for this profile' })
+      return
+    }
+    res.json(getWatchedSet(profileId))
   })
 
   app.get('/api/continueWatching', (req, res) => {
